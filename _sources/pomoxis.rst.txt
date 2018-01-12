@@ -1,0 +1,22 @@
+pomoxis package
+===============
+
+Submodules
+----------
+
+pomoxis\.watcher module
+-----------------------
+
+.. automodule:: pomoxis.watcher
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+
+Module contents
+---------------
+
+.. automodule:: pomoxis
+    :members:
+    :undoc-members:
+    :show-inheritance:
