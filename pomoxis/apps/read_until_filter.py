@@ -62,11 +62,12 @@ def read_until_align_filter(fast5, bwa_index, channels, warp, start_port=5555, t
     unidentified_reads = defaultdict(list)
     unblocks = Counter()
 
+    q = TaskQueue(num_workers=5)
     ###
     # The read until app
     @asyncio.coroutine
     def poll_data(port):
-        align_client = yield from bwa.align_client(align_port) 
+        align_client = yield from bwa.align_client(align_port)
         replay_client = yield from replayfast5.replay_client(replay_port)
         yield from asyncio.sleep(5)
         start_time = now()
@@ -128,14 +129,14 @@ def read_until_align_filter(fast5, bwa_index, channels, warp, start_port=5555, t
                     if len(basecall) < 100:
                         continue
 
-                    #DCT TODO: State array (of length 512 for each nanopore) that will keep track of if a pore has been not interested in alignments, 
+                    #DCT TODO: State array (of length 512 for each nanopore) that will keep track of if a pore has been not interested in alignments,
                     #		   eject has been requested, or still checking for alignments. These will need to be set in here and in the job
                     #DCT TODO: Create an array that stores events being read in. Pass these events at a specific location to the job
                    	#		   Arrays will have either events or -1 in it. -1 will let the job know there is nothing to do here. Don't run align
                     #DCT TODO: Check the number of bases that has been read in here (length of distances/ positions array * size of events(will probably be 17))
                     #DCT TODO: Add a call to a job here using Huey (code from here down to the end of the for loop will be put in the job)
                     #		   Inputs to job are the pore number and the offset of the events you wanted to search for in that pore
-                    #DCT TDOD: Replace this with our align call 
+                    #DCT TDOD: Replace this with our align call
                     alignment, returncode = yield from align_client.call.align(basecall)
                     #DCT TDOD: write a dtw/dct client here. Pass events, allwoed warp, channel, and length of events to the align client
                     #This is going to be a function inside our python wrapper
@@ -143,7 +144,7 @@ def read_until_align_filter(fast5, bwa_index, channels, warp, start_port=5555, t
                     #Basically we will need to store the two arrays being returned by align into a respective array for each nanopore (of which there are 512)
 
                     #DCT TODO: Check the returned p value here (is it less than or equal to discovery rate?)
-                    #		   
+                    #
 
                     hits = []
                     if returncode != 0:
