@@ -1,0 +1,71 @@
+import unittest
+import magenta
+import time
+
+import sys
+sys.path.insert(0, '/home/sjhepbur/pomoxis/pomoxis/apps')
+
+import timeout_decorator
+from lifojobqueue import TaskQueue
+import dtwjob
+ 
+# Assert Format: assertEquals(Expected, Actual) 
+events = None
+genome_length = None
+genome_location = "/home/askariya/minioncapstone/sample_data/E_coli/ecoli_genome.fna"
+
+# class Test_Load_Genome(unittest.TestCase):
+ 
+    # def setUp(self):
+        #TODO maybe add initializations here
+        # pass
+    #----------------------------LOAD GENOME Unit Tests-------------------------
+    # def test_load_genome(self):
+        #TODO change expected value to reflect what we actually expect.
+        # self.assertEqual(9380443, magenta.load_genome("/home/askariya/minioncapstone/sample_data/E_coli/ecoli_genome.fna", 17, 1))
+        # self.assertEqual()
+
+
+class Test_Align(unittest.TestCase):
+    def setUp(self):
+        global events 
+        # global genome_length
+        events = magenta.align_setup("/home/askariya/minioncapstone/sample_data/E_coli/fast5/nanopore2_20160728_FNFAB24462_MN17024_sequencing_run_E_coli_K12_1D_R9_SpotOn_2_40525_ch116_read578_strand.fast5") 
+        # genome_length = magenta.load_genome("/home/askariya/minioncapstone/sample_data/E_coli/ecoli_genome.fna", 17, 1)
+        # print(genome_length) #TODO delete this
+
+    def test_load_genome2(self):
+        i = 17
+        tmp_events = None
+        #TODO Need to change this to an assert instead of just printing the results.
+        #TODO Put calculation of maxlength here
+        q = TaskQueue(genome_location, num_workers=1, maxlength=10000)
+        # time.sleep(5)
+        while i <= len(events):
+            # print(len(events))
+            tmp_events = events[(i-17):i]
+            # time.sleep(0.9)
+            # print(len(q))
+            if len(q) >= q.maxlen and q.maxlen != 0:
+                try:
+                	q.popleft()
+                except Exception as e:
+                	print(e)
+
+            #DCT TODO: We wont need the channel number for DCT since that will be specified by the shared buffer memory
+            q.add_task(dtwjob.dtw_job, tmp_events, int(len(tmp_events)*0.15), 116, len(tmp_events))
+            # print("Added task: " + str(i))
+            # raw_input("Hit a key")
+            # p, query_matches, sub_matches = magenta.align(tmp_events, int(len(tmp_events)*0.15), 121, len(tmp_events))
+            # print(p)
+            # print(query_matches)
+            # print(sub_matches)
+            i = i + 17
+        print("Out of loop")
+        print(len(events))
+        print(i)
+        while len(q) > 0:
+        	pass
+
+if __name__ == '__main__':
+    unittest.main()
