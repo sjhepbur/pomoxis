@@ -1,5 +1,7 @@
 #DCT: magenta import
 import magenta
+import signal
+import sys
 
 import argparse
 import asyncio
@@ -20,6 +22,11 @@ from pomoxis.pyscrap import pyscrap
 import logging
 logger = logging.getLogger(__name__)
 
+def signalTrap(signum, frame):
+    print("\nSignal received, deallocating shared memory\n")
+    magenta.deallocate_dist_pos()
+    print('\nInterrupted with signal: ' + str(signum))
+    sys.exit()
 
 def read_until_align_filter(fast5, bwa_index, channels, warp, start_port=5555, targets=['Ecoli', 'yeast'], whitelist=False):
     """Demonstration read until application using scrappie and bwa to filter
@@ -229,6 +236,10 @@ starts and experiment in MinKnow.
     parser.add_argument('channels', action=ExpandRanges, help='Fast5 channel for source data.')
     parser.add_argument('bwa_index', nargs='+', help='Filename path prefix for BWA index files.')
     args = parser.parse_args()
+
+    sigs = [signal.SIGHUP, signal.SIGINT, signal.SIGTERM, signal.SIGQUIT]
+    for sig in sigs:
+        signal.signal(sig, signalTrap)
 
     #DCT TODO: Assign arguments passed in to global variables so they can be used anywhere
     #DCT TODO: load in ref gemone
