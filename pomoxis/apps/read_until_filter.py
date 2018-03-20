@@ -228,12 +228,15 @@ starts and experiment in MinKnow.
     parser.add_argument('ref_location', help='Location of the reference genome')
     #DCT TODO: Add an argument for false discovery rate (needed p value).
     parser.add_argument('disc_rate', help='False discovery rate')
-    #DCT TODO: Add an argument for num of events to read before rejecting (positive selection).
+    #DCT TODO: Add an argument for num of events to read before rejecting (positive selection)
     parser.add_argument('num_of_bases', help='The number of bases to read in before rejecting')
+    #DCT TODO: Add a flag that will let the user specify positive or negative selection
+    #DCT TODO: Add an argument for the block size of events
 
 
     parser.add_argument('fast5', help='Input fast5.')
     parser.add_argument('channels', action=ExpandRanges, help='Fast5 channel for source data.')
+    #DCT TODO: Need to get the length of channels to calculate the maxlength of the queue
     parser.add_argument('bwa_index', nargs='+', help='Filename path prefix for BWA index files.')
     args = parser.parse_args()
 
