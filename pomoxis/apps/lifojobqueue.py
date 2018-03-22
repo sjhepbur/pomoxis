@@ -3,6 +3,10 @@ import collections
 import time
 import magenta
 
+import numpy as np
+import SharedArray as sa
+
+
 class TaskQueue(collections.deque):
 
     def __init__(self, genome_location, block_size=17, verbose=1, num_workers=1, maxlength=0):
@@ -33,12 +37,15 @@ class TaskQueue(collections.deque):
         print("Initialization worked!")
         magenta.load_genome(genome_location, block_size, verbose)
         print("Genome loaded!")
+
+        flag_array = sa.attach("shm://pore_flags")
         #DCT TODO: Get location of all 512 buffer locations in shared memory from wrapper
 
         while True:
             if len(self) > 0:
                 try:
                     item, args, kwargs = self.pop()
+                    args = args + (flag_array,)
                 except Exception as e:
                     print(e)
                 try:

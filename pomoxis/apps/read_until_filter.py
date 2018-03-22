@@ -17,11 +17,19 @@ from pomoxis.provider import replayfast5
 from pomoxis.align import bwa
 from pomoxis.pyscrap import pyscrap
 
+from flag_enum import flag
+
 import logging
 logger = logging.getLogger(__name__)
 
+flag_array = sa.create("shm://pore_flags", 512)
 
-def read_until_align_filter(fast5, bwa_index, channels, warp, start_port=5555, targets=['Ecoli', 'yeast'], whitelist=False):
+num_blocks_read = [0] * 512
+num_query_read = [0] * 512
+left_over_events = []
+
+
+def read_until_align_filter(fast5, bwa_index, channels, warp, genome_location, disc_rate, max_num_blocks, selection_type, block_size, max_dev, start_port=5555, targets=['Ecoli', 'yeast'], whitelist=False):
     """Demonstration read until application using scrappie and bwa to filter
     reads by identity.
 
@@ -62,7 +70,11 @@ def read_until_align_filter(fast5, bwa_index, channels, warp, start_port=5555, t
     unidentified_reads = defaultdict(list)
     unblocks = Counter()
 
-    q = TaskQueue(num_workers=5)
+
+    #DTW: Adding the job queue here
+    max_length = num_of_bases / block_size * channels.length
+    dtw_queue = TaskQueue(genome_location, num_workers=1, maxlength=max_length)
+    
     ###
     # The read until app
     @asyncio.coroutine
@@ -100,13 +112,18 @@ def read_until_align_filter(fast5, bwa_index, channels, warp, start_port=5555, t
             logger.info("Total good reads: {}".format(target_count))
 
             for channel in channels:
+                channel_num = channels.index(channel)
                 read_block = yield from replay_client.call.get_raw(channel)
                 if read_block is None:
                     logger.debug("Channel not in '{}' classification".format(good_class))
-                    #DCT TODO: Reset boolean array here since we're not reading in any data from this pore anymore
-                elif read_block.info in identified_reads:
-                    logger.debug("Skipping because I've seen before.")
-                    continue
+                    #DCT TODO: Reset boolean array here since we're not reading in any data from this pore anymore (Set flag to empty)
+                    flag_array[channel_num] = flag.Empty
+                    num_blocks_read[channel_num] = 0
+                    num_query_read[channel_num] = 0
+                    left_over_events[channel_num] = None
+                # elif read_block.info in identified_reads:
+                #     logger.debug("Skipping because I've seen before.")
+                #     continue
                 else:
                     logger.debug("Analysing {} samples".format(len(read_block)))
                     sample_rate = read_block.sample_rate
@@ -118,17 +135,46 @@ def read_until_align_filter(fast5, bwa_index, channels, warp, start_port=5555, t
                             'peak_height':0.2
                         }
                     )
-                    if len(events) < 100:
-                        continue
 
+                    total_events = left_over_events[channel_num] + events
+                    if len(total_events) > block_size:
+                    	while len(total_events) > block_size:
+                    		block_events = total_events[0:block_size-1]
+                    		total_events = total_events[block_size:len(total_events)-1]
+                    		if flag_array[channel_num] == flag.Empty:
+                       			flag_array[channel_num] = flag.Instrand_check
+                        		num_blocks_read[channel_num] = 1
+                        	elif flag_array[channel_num] == flag.Instrand_check:
+                    			num_blocks_read[channel_num] = num_blocks_read[channel_num] + 1
+                    		dtw_queue.add_task(dtwjob.dtw_job, block_events, warp, channel_num, len(events), disc_rate, logger, replay_client, num_blocks_read[channel_num], max_num_blocks, selection_type, channel, read_block, num_query_read[channel_num], max_dev)
+                    		num_query_read[channel_num] = num_query_read[channel_num] + block_size
+                    	left_over_events[channel_num] = total_events
+                    elif len(total_events) = block_size:
+                    	if flag_array[channel_num] == flag.Empty:
+                       		flag_array[channel_num] = flag.Instrand_check
+                        	num_blocks_read[channel_num] = 1
+                        elif flag_array[channel_num] == flag.Instrand_check:
+                    		num_blocks_read[channel_num] = num_blocks_read[channel_num] + 1
+                    	dtw_queue.add_task(dtwjob.dtw_job, total_events, warp, channel_num, len(events), disc_rate, logger, replay_client, num_blocks_read[channel_num], max_num_blocks, selection_type, channel, read_block, num_query_read[channel_num], max_dev)
+                    	num_query_read[channel_num] = num_query_read[channel_num] + block_size
+                    	left_over_events[channel_num] = None
+                    elif len(total_events) < block_size:
+                    	left_over_events[channel_num] = total_events
                     #TODO: do this in a process pool
 
                     #DCT TODO: this line is not needed
-                    score, basecall = pyscrap.basecall_events(events)
+                    # score, basecall = pyscrap.basecall_events(events)
                     #TODO: check sanity of basecall
-                    if len(basecall) < 100:
-                        continue
+                    # if len(basecall) < 100:
+                    #     continue
 
+                    # if flag_array[channel_num] == flag.Empty:
+                    #     flag_array[channel_num] = flag.Instrand_check
+                    #     num_blocks_read[channel_num] = 1
+                    #     dtw_queue.add_task(dtwjob.dtw_job, events, warp, channel_num, len(events), disc_rate, logger, replay_client, num_blocks_read[channel_num], max_num_blocks, selection_type, channel, read_block)
+                    # elif flag_array[channel_num] == flag.Instrand_check:
+                    # 	num_blocks_read[channel_num] = num_blocks_read[channel_num] + 1
+                    #     dtw_queue.add_task(dtwjob.dtw_job, events, warp, channel_num, len(events), disc_rate, logger, replay_client, num_blocks_read[channel_num], max_num_blocks, selection_type, channel, read_block)
                     #DCT TODO: State array (of length 512 for each nanopore) that will keep track of if a pore has been not interested in alignments,
                     #		   eject has been requested, or still checking for alignments. These will need to be set in here and in the job
                     #DCT TODO: Create an array that stores events being read in. Pass these events at a specific location to the job
@@ -137,8 +183,11 @@ def read_until_align_filter(fast5, bwa_index, channels, warp, start_port=5555, t
                     #DCT TODO: Add a call to a job here using Huey (code from here down to the end of the for loop will be put in the job)
                     #		   Inputs to job are the pore number and the offset of the events you wanted to search for in that pore
                     #DCT TDOD: Replace this with our align call
-                    alignment, returncode = yield from align_client.call.align(basecall)
-                    #DCT TDOD: write a dtw/dct client here. Pass events, allwoed warp, channel, and length of events to the align client
+                    # alignment, returncode = yield from align_client.call.align(basecall)
+
+
+
+                    #DCT TODO: write a dtw/dct client here. Pass events, allwoed warp, channel, and length of events to the align client
                     #This is going to be a function inside our python wrapper
                     #Preallocate array of arrays that will contain the arrays of collinear matches being returned by align
                     #Basically we will need to store the two arrays being returned by align into a respective array for each nanopore (of which there are 512)
@@ -146,40 +195,40 @@ def read_until_align_filter(fast5, bwa_index, channels, warp, start_port=5555, t
                     #DCT TODO: Check the returned p value here (is it less than or equal to discovery rate?)
                     #
 
-                    hits = []
-                    if returncode != 0:
-                        logger.warning('Alignment failed for {}'.format(read_block.info))
-                    else:
-                        recs = [x for x in alignment.split('\n') if len(x) > 0 and x[0] != '@']
-                        for r in recs:
-                            fields = r.split('\t')
-                            if fields[2] != '*':
-                                hits.append(fields[2])
-                    logger.debug('{} aligns to {}'.format(read_block.info, hits))
+                    # hits = []
+                    # if returncode != 0:
+                    #     logger.warning('Alignment failed for {}'.format(read_block.info))
+                    # else:
+                    #     recs = [x for x in alignment.split('\n') if len(x) > 0 and x[0] != '@']
+                    #     for r in recs:
+                    #         fields = r.split('\t')
+                    #         if fields[2] != '*':
+                    #             hits.append(fields[2])
+                    # logger.debug('{} aligns to {}'.format(read_block.info, hits))
 
-                    #DCT TODO: this will eventually need to check if the p value being returned from the align client is less than the value specified by the user
-                    if len(hits) == 1:
-                        identified_reads[read_block.info] = hits[0]
-                        # maybe got 0 or >1 previously
-                        #TODO: there are some edges cases here
-                        try:
-                            del unidentified_reads[read_block.info]
-                        except KeyError:
-                            pass
-                    else:
-                        unidentified_reads[read_block.info].extend(hits)
+                    # #DCT TODO: this will eventually need to check if the p value being returned from the align client is less than the value specified by the user
+                    # if len(hits) == 1:
+                    #     identified_reads[read_block.info] = hits[0]
+                    #     # maybe got 0 or >1 previously
+                    #     #TODO: there are some edges cases here
+                    #     try:
+                    #         del unidentified_reads[read_block.info]
+                    #     except KeyError:
+                    #         pass
+                    # else:
+                    #     unidentified_reads[read_block.info].extend(hits)
 
-                    if read_block.info in identified_reads:
-                        good_read = whitelist
-                        if identified_reads[read_block.info] not in targets:
-                            good_read = not whitelist
+                    # if read_block.info in identified_reads:
+                    #     good_read = whitelist
+                    #     if identified_reads[read_block.info] not in targets:
+                    #         good_read = not whitelist
 
-                        if not good_read:
-                            logger.info('Attempting to unblock channel {} due to contaminant.'.format(channel))
-                            _, good_unblock = yield from replay_client.call.unblock(channel, read_block.info, read_block.end)
-                            unblocks[good_unblock] += 1
-                        else:
-                            target_count += 1
+                    #     if not good_read:
+                    #         logger.info('Attempting to unblock channel {} due to contaminant.'.format(channel))
+                    #         _, good_unblock = yield from replay_client.call.unblock(channel, read_block.info, read_block.end)
+                    #         unblocks[good_unblock] += 1
+                    #     else:
+                    #         target_count += 1
 
     event_loop.create_task(poll_data(port))
 
@@ -187,6 +236,7 @@ def read_until_align_filter(fast5, bwa_index, channels, warp, start_port=5555, t
         event_loop.run_forever()
     except KeyboardInterrupt:
         pass
+    sa.delete("pore_flags")
 
 
 class ExpandRanges(argparse.Action):
@@ -216,15 +266,20 @@ starts and experiment in MinKnow.
 """)
 
     #DCT TODO: Add an argument for allowed warp variable
-    parser.add_argument('warp', help='Allowed warp')
+    parser.add_argument('-w', default=0.15, help='Allowed warp')
     #DCT TODO: Add an argument for ref genome location
     parser.add_argument('ref_location', help='Location of the reference genome')
     #DCT TODO: Add an argument for false discovery rate (needed p value).
-    parser.add_argument('disc_rate', help='False discovery rate')
-    #DCT TODO: Add an argument for num of events to read before rejecting (positive selection)
-    parser.add_argument('num_of_bases', help='The number of bases to read in before rejecting')
+    parser.add_argument('-p', default=0.01, help='False discovery rate')
+    #DCT TODO: Add an argument for max num of blocks to read before rejecting (positive/ negative selection)
+    parser.add_argument('-m', default=32, help='The number of bases to read in before rejecting')
     #DCT TODO: Add a flag that will let the user specify positive or negative selection
+    parser.add_argument('selection_type', help='Specify positive or negative selction')
     #DCT TODO: Add an argument for the block size of events
+    parser.add_argument('-b', default=17, help='The block size of events')
+    #DCT TOD: Add argument for maximum colinear deviation
+    parser.add_argument('-d', default=0.15, help='Max colinear deviation needed')
+
 
 
     parser.add_argument('fast5', help='Input fast5.')
@@ -233,10 +288,12 @@ starts and experiment in MinKnow.
     parser.add_argument('bwa_index', nargs='+', help='Filename path prefix for BWA index files.')
     args = parser.parse_args()
 
+    # magenta.load_genome(args.ref_location, 1)
+
     #DCT TODO: Assign arguments passed in to global variables so they can be used anywhere
     #DCT TODO: load in ref gemone
     #magenta.load_genome(args.ref_location)
-    read_until_align_filter(args.fast5, args.bwa_index, [str(x) for x in args.channels], args.warp)
+    read_until_align_filter(args.fast5, args.bwa_index, [str(x) for x in args.channels], args.w, args.ref_location, args.p, args.m, args.selection_type, args.b, args.d)
 
 
 if __name__ == '__main__':

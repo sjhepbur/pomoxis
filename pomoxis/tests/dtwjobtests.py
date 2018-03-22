@@ -2,6 +2,9 @@ import unittest
 import magenta
 import time
 
+import numpy as np
+import SharedArray as sa
+
 import sys
 sys.path.insert(0, '/home/sjhepbur/pomoxis/pomoxis/apps')
 
@@ -14,16 +17,13 @@ events = None
 genome_length = None
 genome_location = "/home/askariya/minioncapstone/sample_data/E_coli/ecoli_genome.fna"
 
-# class Test_Load_Genome(unittest.TestCase):
- 
-    # def setUp(self):
-        #TODO maybe add initializations here
-        # pass
-    #----------------------------LOAD GENOME Unit Tests-------------------------
-    # def test_load_genome(self):
-        #TODO change expected value to reflect what we actually expect.
-        # self.assertEqual(9380443, magenta.load_genome("/home/askariya/minioncapstone/sample_data/E_coli/ecoli_genome.fna", 17, 1))
-        # self.assertEqual()
+flag_array = sa.create("shm://pore_flags", 512)
+
+#States of the shared flags (set as enums):
+# - Clearing
+# - Empty
+# - Instrand_ignore (Something in the pore but we don't want to run jobs)
+# - Instrand_check (Something in the pore and we do want to run the job)
 
 
 class Test_Align(unittest.TestCase):
@@ -37,11 +37,14 @@ class Test_Align(unittest.TestCase):
     def test_load_genome2(self):
         i = 17
         tmp_events = None
+        
+        flag_array[0] = 42
         #TODO Need to change this to an assert instead of just printing the results.
         #TODO Put calculation of maxlength here
         q = TaskQueue(genome_location, num_workers=1, maxlength=10000)
         # time.sleep(5)
-        while i <= len(events):
+        # while i <= len(events):
+        while i <= 50:
             # print(len(events))
             tmp_events = events[(i-17):i]
             # time.sleep(0.9)
@@ -61,11 +64,15 @@ class Test_Align(unittest.TestCase):
             # print(query_matches)
             # print(sub_matches)
             i = i + 17
+
         print("Out of loop")
         print(len(events))
         print(i)
-        while len(q) > 0:
-        	pass
+        print(a[1])
+        sa.delete("pore_flags")
+        # while len(q) > 0:
+        # 	pass
+        
 
 if __name__ == '__main__':
     unittest.main()
