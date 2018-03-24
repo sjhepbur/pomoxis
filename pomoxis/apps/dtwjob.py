@@ -25,6 +25,7 @@ def dtw_job(events, warp, channel_num, len_of_events, disc_rate, logger, replay_
 
     #DCT TODO: Check the returned p value here (is it less than or equal to discovery rate?)
     #
+
     if (p <= disc_rate && selection_type == "positive") || (p > disc_rate && num_blocks_read >= max_num_blocks && selection_type == "negative"):
     	flag_list[channel_num] = flag.Instrand_ignore
     elif p > disc_rate && num_blocks_read < max_num_blocks:
@@ -32,4 +33,7 @@ def dtw_job(events, warp, channel_num, len_of_events, disc_rate, logger, replay_
     elif (p > disc_rate && num_blocks_read >= max_num_blocks && selection_type == "positive") || (p <= disc_rate && selection_type == "negative"):
     	_, good_unblock = yield from replay_client.call.unblock(channel, read_block.info, read_block.end)
     	flag_list[channel_num] = flag.Clearing
+
+    print("p value: " + p)
+    print("query_location: " + query_location)
     #DTW/DCT: END OF WHAT IS NEEDED IN JOB

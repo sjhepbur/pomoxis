@@ -1,5 +1,7 @@
 #DCT: magenta import
 import magenta
+import signal
+import sys
 
 import argparse
 import asyncio
@@ -9,27 +11,36 @@ from timeit import default_timer as now
 
 from aiozmq import rpc
 import numpy as np
+import SharedArray as sa
+
 
 from nanonet.eventdetection.filters import minknow_event_detect
 
 from pomoxis import set_wakeup
 from pomoxis.provider import replayfast5
 from pomoxis.align import bwa
-from pomoxis.pyscrap import pyscrap
+# from pomoxis.pyscrap import pyscrap
 
 from flag_enum import flag
+from lifojobqueue import TaskQueue
 
 import logging
 logger = logging.getLogger(__name__)
 
-flag_array = sa.create("shm://pore_flags", 512)
 
 num_blocks_read = [0] * 512
 num_query_read = [0] * 512
 left_over_events = []
 
 
-def read_until_align_filter(fast5, bwa_index, channels, warp, genome_location, disc_rate, max_num_blocks, selection_type, block_size, max_dev, start_port=5555, targets=['Ecoli', 'yeast'], whitelist=False):
+def signalTrap(signum, frame):
+    print("\nSignal received, deallocating shared memory\n")
+    sa.delete("pore_flags")
+    magenta.deallocate_dist_pos()
+    print('\nInterrupted with signal: ' + str(signum))
+    sys.exit()
+
+def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, max_num_blocks, selection_type, block_size, max_dev, start_port=5555, targets=['Ecoli', 'yeast'], whitelist=False):
     """Demonstration read until application using scrappie and bwa to filter
     reads by identity.
 
@@ -60,10 +71,10 @@ def read_until_align_filter(fast5, bwa_index, channels, warp, genome_location, d
     ))
     port += 1
     # Setup alignment service
-    align_port = port
-    align_server = event_loop.create_task(bwa.align_server(
-        bwa_index, align_port
-    ))
+    # align_port = port
+    # align_server = event_loop.create_task(bwa.align_server(
+    #     bwa_index, align_port
+    # ))
 
 
     identified_reads = {}
@@ -72,18 +83,21 @@ def read_until_align_filter(fast5, bwa_index, channels, warp, genome_location, d
 
 
     #DTW: Adding the job queue here
-    max_length = num_of_bases / block_size * channels.length
+    max_length = max_num_blocks * len(channels)
     dtw_queue = TaskQueue(genome_location, num_workers=1, maxlength=max_length)
+    print("Made the task queue")
     
     ###
     # The read until app
     @asyncio.coroutine
     def poll_data(port):
-        align_client = yield from bwa.align_client(align_port)
+        # align_client = yield from bwa.align_client(align_port)
         replay_client = yield from replayfast5.replay_client(replay_port)
         yield from asyncio.sleep(5)
         start_time = now()
         target_count = 0
+
+        print("Before while loop")
         while True:
             time_saved = yield from replay_client.call.time_saved()
             total_pore_time = (now() - start_time) * len(channels)
@@ -111,6 +125,8 @@ def read_until_align_filter(fast5, bwa_index, channels, warp, genome_location, d
             logger.info("Unblocks (timely/late): {}/{}.".format(unblocks[True], unblocks[False]))
             logger.info("Total good reads: {}".format(target_count))
 
+            print("Before channel loop")
+
             for channel in channels:
                 channel_num = channels.index(channel)
                 read_block = yield from replay_client.call.get_raw(channel)
@@ -136,30 +152,31 @@ def read_until_align_filter(fast5, bwa_index, channels, warp, genome_location, d
                         }
                     )
 
+                    print("About to check events. . .")
                     total_events = left_over_events[channel_num] + events
                     if len(total_events) > block_size:
-                    	while len(total_events) > block_size:
-                    		block_events = total_events[0:block_size-1]
-                    		total_events = total_events[block_size:len(total_events)-1]
-                    		if flag_array[channel_num] == flag.Empty:
-                       			flag_array[channel_num] = flag.Instrand_check
-                        		num_blocks_read[channel_num] = 1
-                        	elif flag_array[channel_num] == flag.Instrand_check:
-                    			num_blocks_read[channel_num] = num_blocks_read[channel_num] + 1
-                    		dtw_queue.add_task(dtwjob.dtw_job, block_events, warp, channel_num, len(events), disc_rate, logger, replay_client, num_blocks_read[channel_num], max_num_blocks, selection_type, channel, read_block, num_query_read[channel_num], max_dev)
-                    		num_query_read[channel_num] = num_query_read[channel_num] + block_size
-                    	left_over_events[channel_num] = total_events
-                    elif len(total_events) = block_size:
-                    	if flag_array[channel_num] == flag.Empty:
-                       		flag_array[channel_num] = flag.Instrand_check
-                        	num_blocks_read[channel_num] = 1
+                        while len(total_events) > block_size:
+                            block_events = total_events[0:block_size-1]
+                            total_events = total_events[block_size:len(total_events)-1]
+                            if flag_array[channel_num] == flag.Empty:
+                       	        flag_array[channel_num] = flag.Instrand_check
+                                num_blocks_read[channel_num] = 1
+                            elif flag_array[channel_num] == flag.Instrand_check:
+                                num_blocks_read[channel_num] = num_blocks_read[channel_num] + 1
+                            dtw_queue.add_task(dtwjob.dtw_job, block_events, warp, channel_num, len(events), disc_rate, logger, replay_client, num_blocks_read[channel_num], max_num_blocks, selection_type, channel, read_block, num_query_read[channel_num], max_dev)
+                            num_query_read[channel_num] = num_query_read[channel_num] + block_size
+                        left_over_events[channel_num] = total_events
+                    elif len(total_events) == block_size:
+                        if flag_array[channel_num] == flag.Empty:
+                       	    flag_array[channel_num] = flag.Instrand_check
+                            num_blocks_read[channel_num] = 1
                         elif flag_array[channel_num] == flag.Instrand_check:
-                    		num_blocks_read[channel_num] = num_blocks_read[channel_num] + 1
-                    	dtw_queue.add_task(dtwjob.dtw_job, total_events, warp, channel_num, len(events), disc_rate, logger, replay_client, num_blocks_read[channel_num], max_num_blocks, selection_type, channel, read_block, num_query_read[channel_num], max_dev)
-                    	num_query_read[channel_num] = num_query_read[channel_num] + block_size
-                    	left_over_events[channel_num] = None
+                            num_blocks_read[channel_num] = num_blocks_read[channel_num] + 1
+                        dtw_queue.add_task(dtwjob.dtw_job, total_events, warp, channel_num, len(events), disc_rate, logger, replay_client, num_blocks_read[channel_num], max_num_blocks, selection_type, channel, read_block, num_query_read[channel_num], max_dev)
+                        num_query_read[channel_num] = num_query_read[channel_num] + block_size
+                        left_over_events[channel_num] = None
                     elif len(total_events) < block_size:
-                    	left_over_events[channel_num] = total_events
+                        left_over_events[channel_num] = total_events
                     #TODO: do this in a process pool
 
                     #DCT TODO: this line is not needed
@@ -236,7 +253,6 @@ def read_until_align_filter(fast5, bwa_index, channels, warp, genome_location, d
         event_loop.run_forever()
     except KeyboardInterrupt:
         pass
-    sa.delete("pore_flags")
 
 
 class ExpandRanges(argparse.Action):
@@ -285,16 +301,27 @@ starts and experiment in MinKnow.
     parser.add_argument('fast5', help='Input fast5.')
     parser.add_argument('channels', action=ExpandRanges, help='Fast5 channel for source data.')
     #DCT TODO: Need to get the length of channels to calculate the maxlength of the queue
-    parser.add_argument('bwa_index', nargs='+', help='Filename path prefix for BWA index files.')
+    # parser.add_argument('bwa_index', nargs='+', help='Filename path prefix for BWA index files.')
     args = parser.parse_args()
 
     # magenta.load_genome(args.ref_location, 1)
+    sigs = [signal.SIGHUP, signal.SIGINT, signal.SIGTERM, signal.SIGQUIT]
+    for sig in sigs:
+        signal.signal(sig, signalTrap)
+
+    flag_array = sa.create("shm://pore_flags", 512)
+
+    magenta.allocate_dist_pos(100000, 1)
 
     #DCT TODO: Assign arguments passed in to global variables so they can be used anywhere
     #DCT TODO: load in ref gemone
     #magenta.load_genome(args.ref_location)
-    read_until_align_filter(args.fast5, args.bwa_index, [str(x) for x in args.channels], args.w, args.ref_location, args.p, args.m, args.selection_type, args.b, args.d)
+    # read_until_align_filter(args.fast5, args.bwa_index, [str(x) for x in args.channels], args.w, args.ref_location, args.p, args.m, args.selection_type, args.b, args.d)
 
+
+    read_until_align_filter(args.fast5, [str(x) for x in args.channels], args.w, args.ref_location, args.p, args.m, args.selection_type, args.b, args.d)
+    magenta.deallocate_dist_pos()
+    sa.delete("pore_flags")
 
 if __name__ == '__main__':
     main()

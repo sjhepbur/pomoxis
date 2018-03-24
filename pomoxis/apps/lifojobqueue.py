@@ -39,6 +39,8 @@ class TaskQueue(collections.deque):
         print("Genome loaded!")
 
         flag_array = sa.attach("shm://pore_flags")
+
+        print("Shared memory flags attached")
         #DCT TODO: Get location of all 512 buffer locations in shared memory from wrapper
 
         while True:

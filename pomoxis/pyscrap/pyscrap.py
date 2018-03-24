@@ -7,6 +7,7 @@ import sys
 from fast5_research.fast5 import Fast5
 from nanonet.segment import segment
 from nanonet.eventdetection.filters import minknow_event_detect
+from importlib import reload
 
 
 from cffi import FFI
