@@ -92,11 +92,15 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
     @asyncio.coroutine
     def poll_data(port):
         # align_client = yield from bwa.align_client(align_port)
+        print("POLL DATA")
         replay_client = yield from replayfast5.replay_client(replay_port)
         yield from asyncio.sleep(5)
         start_time = now()
         target_count = 0
-
+        flag_array = []
+        for channel in channels:
+            flag_array.append(0)
+            left_over_events.append([])
         print("Before while loop")
         while True:
             time_saved = yield from replay_client.call.time_saved()
@@ -136,7 +140,7 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
                     flag_array[channel_num] = flag.Empty
                     num_blocks_read[channel_num] = 0
                     num_query_read[channel_num] = 0
-                    left_over_events[channel_num] = None
+                    left_over_events[channel_num] = []
                 # elif read_block.info in identified_reads:
                 #     logger.debug("Skipping because I've seen before.")
                 #     continue
@@ -153,29 +157,46 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
                     )
 
                     print("About to check events. . .")
-                    total_events = left_over_events[channel_num] + events
+                    print(events)
+                    total_events = left_over_events[channel_num].extend(events)
+                    try:
+                        len(total_events) > block_size
+                    except Exception as e:
+                        print("Exception!")
+                        print(e)
+                        total_events = []
+
                     if len(total_events) > block_size:
+                        print("1")
                         while len(total_events) > block_size:
+                            print("2")
                             block_events = total_events[0:block_size-1]
                             total_events = total_events[block_size:len(total_events)-1]
                             if flag_array[channel_num] == flag.Empty:
+                                print("3")
                        	        flag_array[channel_num] = flag.Instrand_check
                                 num_blocks_read[channel_num] = 1
                             elif flag_array[channel_num] == flag.Instrand_check:
+                                print("4")
                                 num_blocks_read[channel_num] = num_blocks_read[channel_num] + 1
                             dtw_queue.add_task(dtwjob.dtw_job, block_events, warp, channel_num, len(events), disc_rate, logger, replay_client, num_blocks_read[channel_num], max_num_blocks, selection_type, channel, read_block, num_query_read[channel_num], max_dev)
                             num_query_read[channel_num] = num_query_read[channel_num] + block_size
                         left_over_events[channel_num] = total_events
                     elif len(total_events) == block_size:
+                        print("5")
                         if flag_array[channel_num] == flag.Empty:
+                            print("6")
                        	    flag_array[channel_num] = flag.Instrand_check
                             num_blocks_read[channel_num] = 1
                         elif flag_array[channel_num] == flag.Instrand_check:
+                            print("7")
                             num_blocks_read[channel_num] = num_blocks_read[channel_num] + 1
+                        print("8")
                         dtw_queue.add_task(dtwjob.dtw_job, total_events, warp, channel_num, len(events), disc_rate, logger, replay_client, num_blocks_read[channel_num], max_num_blocks, selection_type, channel, read_block, num_query_read[channel_num], max_dev)
                         num_query_read[channel_num] = num_query_read[channel_num] + block_size
-                        left_over_events[channel_num] = None
+                        left_over_events[channel_num] = []
                     elif len(total_events) < block_size:
+                        print("9")
                         left_over_events[channel_num] = total_events
                     #TODO: do this in a process pool
 
@@ -246,12 +267,11 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
                     #         unblocks[good_unblock] += 1
                     #     else:
                     #         target_count += 1
-
     event_loop.create_task(poll_data(port))
-
     try:
         event_loop.run_forever()
     except KeyboardInterrupt:
+        print("Except")
         pass
 
 
@@ -305,10 +325,14 @@ starts and experiment in MinKnow.
     args = parser.parse_args()
 
     # magenta.load_genome(args.ref_location, 1)
-    sigs = [signal.SIGHUP, signal.SIGINT, signal.SIGTERM, signal.SIGQUIT]
+    sigs = [signal.SIGHUP, signal.SIGINT, signal.SIGTERM, signal.SIGQUIT, signal.SIGFPE]
     for sig in sigs:
         signal.signal(sig, signalTrap)
-
+    try:    
+        sa.attach("shm://pore_flags")
+        sa.delete("pore_flags")
+    except:
+        pass
     flag_array = sa.create("shm://pore_flags", 512)
 
     magenta.allocate_dist_pos(100000, 1)
