@@ -156,7 +156,30 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
                         }
                     )
 
-                    print("About to check events. . .")
+
+                    print(type(events))
+                    list_events = events.tolist()
+                    print(type(list_events))
+                    print("Checking list events")
+                    print(list_events)
+
+                    list_events2 = events[:, 2]
+
+                    print("list_events2 is of type: ")
+                    print(type(list_events2))
+
+                    events = list_events2
+                    # event_data = []
+                    # i = 0
+
+                    # while i != len(events):
+                    #     event_data.extend(events[i][2])
+                    #     i = i + 1
+                    
+
+                    # events = event_data
+
+                    # print("About to check events. . .")
                     print(events)
                     total_events = left_over_events[channel_num].extend(events)
                     try:
