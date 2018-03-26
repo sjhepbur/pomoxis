@@ -3,7 +3,11 @@ from lifojobqueue import TaskQueue
 from flag_enum import flag
 import magenta
 import random
-from pomoxis.provider import replayfast5
+import sys
+
+import logging
+logger = logging.getLogger(__name__)
+# from pomoxis.provider import replayfast5
 
 
 #States of the shared flags (set as enums):
@@ -27,13 +31,18 @@ def dtw_job(events, warp, channel_num, len_of_events, disc_rate, logger, replay_
     #
 
     if (p <= disc_rate and selection_type == "positive") or (p > disc_rate and num_blocks_read >= max_num_blocks and selection_type == "negative"):
-    	flag_list[channel_num] = flag.Instrand_ignore
+    	flag_list[channel_num] = flag.Instrand_ignore.value
     elif p > disc_rate and num_blocks_read < max_num_blocks:
-    	flag_list[channel_num] = flag.Instrand_check
+    	flag_list[channel_num] = flag.Instrand_check.value
     elif (p > disc_rate and num_blocks_read >= max_num_blocks and selection_type == "positive") or (p <= disc_rate and selection_type == "negative"):
-    	_, good_unblock = yield from replay_client.call.unblock(channel, read_block.info, read_block.end)
-    	flag_list[channel_num] = flag.Clearing
-
-    print("p value: " + p)
-    print("query_location: " + query_location)
+    	# _, good_unblock = yield from replay_client.call.unblock(channel, read_block.info, read_block.end)
+        print("Clearing Pore")
+        print("p value: {}".format(p))
+        print("query_location: {}".format(query_location))
+        sys.stdout.flush()
+    	flag_list[channel_num] = flag.Clearing.value
+    # print("In dtw job")
+    # print("query_location: {}".format(query_location))
+    # print("In the job")
+    # sys.stdout.flush()
     #DTW/DCT: END OF WHAT IS NEEDED IN JOB

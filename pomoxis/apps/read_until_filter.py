@@ -325,7 +325,7 @@ starts and experiment in MinKnow.
 """)
 
     #DCT TODO: Add an argument for allowed warp variable
-    parser.add_argument('-w', default=0.15, help='Allowed warp')
+    parser.add_argument('-w', default=2, help='Allowed warp')
     #DCT TODO: Add an argument for ref genome location
     parser.add_argument('ref_location', help='Location of the reference genome')
     #DCT TODO: Add an argument for false discovery rate (needed p value).

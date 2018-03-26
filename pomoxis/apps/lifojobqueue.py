@@ -53,5 +53,6 @@ class TaskQueue(collections.deque):
                 try:
                     #DCT TODO: Pass in buffer location for specific channel being used. Add this as an argument to the job
                     item(*args, **kwargs)
-                except:
+                except Exception as e:
+                    print(e)
                     print("Timeout!")
