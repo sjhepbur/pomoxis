@@ -24,6 +24,8 @@ from pomoxis.align import bwa
 from flag_enum import flag
 from lifojobqueue import TaskQueue
 
+import dtwjob
+
 import logging
 logger = logging.getLogger(__name__)
 
@@ -133,8 +135,10 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
 
             for channel in channels:
                 channel_num = channels.index(channel)
+                #print("Yielding in Channel: " + str(channel_num))
                 read_block = yield from replay_client.call.get_raw(channel)
                 if read_block is None:
+                    #print("Read_Blocks is None: " + str(channel_num))
                     logger.debug("Channel not in '{}' classification".format(good_class))
                     #DCT TODO: Reset boolean array here since we're not reading in any data from this pore anymore (Set flag to empty)
                     flag_array[channel_num] = flag.Empty
@@ -155,20 +159,19 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
                             'peak_height':0.2
                         }
                     )
+                    print("Type of left_over_events")
+                    print(type(left_over_events))
 
 
-                    print(type(events))
                     list_events = events.tolist()
-                    print(type(list_events))
-                    print("Checking list events")
-                    print(list_events)
 
-                    list_events2 = events[:, 2]
 
-                    print("list_events2 is of type: ")
-                    print(type(list_events2))
+                    events = []
+                    for element in list_events:
+                        events.append(float(element[2]))
 
-                    events = list_events2
+                    print("Events: ")
+
                     # event_data = []
                     # i = 0
 
@@ -181,7 +184,10 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
 
                     # print("About to check events. . .")
                     print(events)
-                    total_events = left_over_events[channel_num].extend(events)
+                    left_over_events[channel_num].extend(events)
+                    total_events = left_over_events[channel_num]
+                    print("Type of total events")
+                    print(type(total_events))
                     try:
                         len(total_events) > block_size
                     except Exception as e:
