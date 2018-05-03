@@ -162,6 +162,7 @@ class Test_Align(unittest.TestCase):
         print(len(events))
         # print(i)
         # print(a[1])
+        input("Sup")
         sa.delete("pore_flags")
         magenta.deallocate_dist_pos()
         # while len(q) > 0:
