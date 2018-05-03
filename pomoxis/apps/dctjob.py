@@ -37,7 +37,8 @@ def dct_job(events, channel_num, len_of_events, disc_rate, logger, replay_client
 
     #DCT TODO: Check the returned p value here (is it less than or equal to discovery rate?)
     #
-
+        # check to see if events being read in have matched the reference genome.
+        # on a successful match, check what selection type is used. Ignore the pore if needed.
         if (p <= disc_rate and selection_type == "positive") or (p > disc_rate and num_blocks_read >= max_num_blocks and selection_type == "negative"):
             flag_list[channel_num] = flag.Instrand_ignore.value
         elif p > disc_rate and num_blocks_read < max_num_blocks:

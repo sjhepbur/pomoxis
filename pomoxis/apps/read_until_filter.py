@@ -29,12 +29,14 @@ logger = logging.getLogger(__name__)
 
 import dtwjob
 
-
+# array that contains the number of blocks read in each pore
 num_blocks_read = [0] * 513
+# array that contains the number of events that have been read in each pore
 num_query_read = [0] * 513
+# array that holds any left over events greater than the block size
 left_over_events = []
 
-
+# detect when an interrupt occurs so that memory can be properly deallocated
 def signalTrap(signum, frame):
     print("\nSignal received, deallocating shared memory\n")
     sa.delete("pore_flags")
@@ -100,6 +102,7 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
         start_time = now()
         target_count = 0
         flag_array = []
+        # initiallize the flag and left over events arrays
         for i in range(0,513):
             flag_array.append(0)
             left_over_events.append([])
@@ -139,7 +142,7 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
                 read_block = yield from replay_client.call.get_raw(channel)
                 if read_block is None:
                     logger.debug("Channel not in '{}' classification".format(good_class))
-                    #DCT TODO: Reset boolean array here since we're not reading in any data from this pore anymore (Set flag to empty)
+                    #Reset boolean array here since we're not reading in any data from this pore anymore (Set flag to empty)
                     flag_array[channel_num] = flag.Empty.value
                     num_blocks_read[channel_num] = 0
                     num_query_read[channel_num] = 0
@@ -160,12 +163,13 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
                     )
 
 
-                    
+                    # get events from what has been read in by the MinION
                     list_events = events.tolist()
                     events = []
                     for element in list_events:
                         events.append(float(element[2]))
-
+                    
+                    # store any leftover events
                     left_over_events[channel_num].extend(events)
                     total_events = left_over_events[channel_num]
                     # print("Type of total events")
@@ -177,27 +181,39 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
                         print(e)
                         total_events = []
 
+                    # check if the total events read in are greater than the block size
                     if len(total_events) > block_size:
+
+                        # run while the length of the events is greater than the block_size
                         while len(total_events) > block_size:
+                            # get the correct number of events from the total events
                             block_events = total_events[0:block_size]
                             # print(block_events)
+                            # put the remainder of the events back in total events
                             total_events = total_events[block_size+1:len(total_events)]
+                            # if the channel was empty before
                             if flag_array[channel_num] == flag.Empty.value:
                                 flag_array[channel_num] = flag.Instrand_check.value
                                 num_blocks_read[channel_num] = 1
+                            # if the channel is supposed to be checked
                             elif flag_array[channel_num] == flag.Instrand_check.value:
                                 num_blocks_read[channel_num] = num_blocks_read[channel_num] + 1
+                            # if the channel is supposed to be ignored
                             elif flag_array[channel_num] == flag.Instrand_ignore.value:
                                 logger.info("Reading data but ignoring pore: {}".format(channel_num))
                                 continue
+                            # if the channel is supposed to be cleared
                             elif flag_array[channel_num] == flag.Clearing.value:
                                 logger.info("Clearning Pore: {}".format(channel_num))
                                 continue
+                            # add a task with the correct block size
                             dtw_queue.add_task(dtwjob.dtw_job, block_events, warp, channel_num, len(block_events), disc_rate, logger, 
                             	replay_client, num_blocks_read[channel_num], max_num_blocks, selection_type, channel, read_block, 
                             	num_query_read[channel_num], max_dev)
                             num_query_read[channel_num] = num_query_read[channel_num] + block_size
+                        # put over all the left over events that weren't used in the correct channel number position
                         left_over_events[channel_num] = total_events
+                    # if there is the correct number of events in the block 
                     elif len(total_events) == block_size:
                         if flag_array[channel_num] == flag.Empty.value:
                             flag_array[channel_num] = flag.Instrand_check.value
@@ -216,6 +232,7 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
                         	num_query_read[channel_num], max_dev)
                         num_query_read[channel_num] = num_query_read[channel_num] + block_size
                         left_over_events[channel_num] = []
+                    # if there are less events than the block size should be
                     elif len(total_events) < block_size:
                         left_over_events[channel_num] = total_events
 
@@ -253,19 +270,19 @@ translocation). Outputting a bulk .fast5 can be configured when the user
 starts and experiment in MinKnow.
 """)
 
-    #DCT TODO: Add an argument for allowed warp variable
+    # Aallowed warp variable
     parser.add_argument('-w', default=4, type=int, help='Allowed warp')
-    #DCT TODO: Add an argument for ref genome location
+    #Ref genome location
     parser.add_argument('ref_location', type=str, help='Location of the reference genome')
-    #DCT TODO: Add an argument for false discovery rate (needed p value).
+    # False discovery rate (needed p value).
     parser.add_argument('-p', default=0.01, type=float, help='False discovery rate')
-    #DCT TODO: Add an argument for max num of blocks to read before rejecting (positive/ negative selection)
+    # Max num of blocks to read before rejecting (positive/ negative selection)
     parser.add_argument('-m', default=64, type=int, help='The number of bases to read in before rejecting')
-    #DCT TODO: Add a flag that will let the user specify positive or negative selection
+    # Flag that will let the user specify positive or negative selection
     parser.add_argument('selection_type', type=str, choices=['positive', 'negative'], help='Specify positive or negative selction')
-    #DCT TODO: Add an argument for the block size of events
+    # Block size of events
     parser.add_argument('-b', default=24, type=int, help='The block size of events')
-    #DCT TOD: Add argument for maximum colinear deviation
+    # Maximum colinear deviation
     parser.add_argument('-d', default=0.25, type=float, help='Max colinear deviation needed')
 
 
