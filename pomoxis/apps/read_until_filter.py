@@ -35,6 +35,12 @@ num_blocks_read = [0] * 513
 num_query_read = [0] * 513
 # array that holds any left over events greater than the block size
 left_over_events = []
+# array that holds the mean of all events that have been read in so far
+pore_means = [0] * 513
+# array that holds the standard deviations of all events that have been read in so far
+pore_stds = [0] * 513
+# array that holds the M2 of all events that have been read in so far
+pore_M2 = [0] * 513
 
 # detect when an interrupt occurs so that memory can be properly deallocated
 def signalTrap(signum, frame):
@@ -106,7 +112,7 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
         for i in range(0,513):
             flag_array.append(0)
             left_over_events.append([])
-        print("Before while loop")
+        #print("Before while loop")
         while True:
             time_saved = yield from replay_client.call.time_saved()
             total_pore_time = (now() - start_time) * len(channels)
@@ -134,7 +140,7 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
             logger.info("Unblocks (timely/late): {}/{}.".format(unblocks[True], unblocks[False]))
             logger.info("Total good reads: {}".format(target_count))
 
-            print("Before channel loop")
+            #print("Before channel loop")
 
             for channel in channels:
                 channel_num = int(channel)
@@ -168,7 +174,7 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
                     events = []
                     for element in list_events:
                         events.append(float(element[2]))
-                    
+                    print(events)
                     # store any leftover events
                     left_over_events[channel_num].extend(events)
                     total_events = left_over_events[channel_num]
@@ -206,6 +212,8 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
                             elif flag_array[channel_num] == flag.Clearing.value:
                                 logger.info("Clearning Pore: {}".format(channel_num))
                                 continue
+                            # calculate mean and standard deviation of events that have been read in
+                            
                             # add a task with the correct block size
                             dtw_queue.add_task(dtwjob.dtw_job, block_events, warp, channel_num, len(block_events), disc_rate, logger, 
                             	replay_client, num_blocks_read[channel_num], max_num_blocks, selection_type, channel, read_block, 
