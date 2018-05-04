@@ -1,7 +1,7 @@
 from timeout_decorator import timeout
 from lifojobqueue import TaskQueue
 from flag_enum import flag
-import magenta
+import dct
 import random
 import sys
 
@@ -20,13 +20,14 @@ import logging
 #DCT TODO: Add in an argument for the shared memory location to be passed into align when called
 #DCT TODO: We wont be needing the channel_num since the shared memory location will relate to the channel being used
 #@timeout(5, use_signals=False)
-def dtw_job(events, warp, channel_num, len_of_events, disc_rate, logger, replay_client, num_blocks_read, max_num_blocks, selection_type, channel, read_block, query_location, max_dev, flag_list):
+def dct_job(events, channel_num, len_of_events, disc_rate, logger, replay_client, num_blocks_read, max_num_blocks, selection_type, channel, read_block, query_location, max_dev, match_loc_address, flag_list):
     # print("Test")
     #sys.stdout.flush()
     print("Pore: {}".format(channel))
     sys.stdout.flush()
+
     if flag_list[channel_num] != flag.Clearing.value and flag_list[channel_num] != flag.Instrand_ignore.value:
-        p, query_match_locs, sub_match_locs = magenta.align(events, warp, channel_num, len_of_events, query_location, max_dev)
+        p, query_match_locs, sub_match_locs = dct.align(events, match_loc_address, len_of_events, max_dev, channel_num)
         print("p value: {}".format(p))
         print("query_location: {}".format(query_location))
         sys.stdout.flush()

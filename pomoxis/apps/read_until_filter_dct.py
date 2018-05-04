@@ -1,5 +1,4 @@
-#DCT: magenta import
-import magenta
+import dct
 import signal
 import sys
 
@@ -27,7 +26,7 @@ from lifojobqueue import TaskQueue
 import logging
 logger = logging.getLogger(__name__)
 
-import dtwjob
+import dctjob
 
 
 num_blocks_read = [0] * 513
@@ -38,11 +37,11 @@ left_over_events = []
 def signalTrap(signum, frame):
     print("\nSignal received, deallocating shared memory\n")
     sa.delete("pore_flags")
-    magenta.deallocate_dist_pos()
+    dct.deallocate_matchlocs()
     print('\nInterrupted with signal: ' + str(signum))
     sys.exit()
 
-def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, max_num_blocks, selection_type, block_size, max_dev, start_port=5555, targets=['Ecoli', 'yeast'], whitelist=False):
+def read_until_align_filter(fast5, channels, genome_location, disc_rate, max_num_blocks, selection_type, block_size, max_dev, address_list, start_port=5555, targets=['Ecoli', 'yeast'], whitelist=False):
     """Demonstration read until application using scrappie and bwa to filter
     reads by identity.
 
@@ -83,10 +82,8 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
     unidentified_reads = defaultdict(list)
     unblocks = Counter()
 
-
-    #DTW: Adding the job queue here
     max_length = max_num_blocks * len(channels)
-    dtw_queue = TaskQueue(genome_location, num_workers=1, maxlength=max_length)
+    dct_queue = TaskQueue(genome_location, num_workers=1, maxlength=max_length)
     print("Made the task queue")
     
     ###
@@ -140,10 +137,12 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
                 if read_block is None:
                     logger.debug("Channel not in '{}' classification".format(good_class))
                     #DCT TODO: Reset boolean array here since we're not reading in any data from this pore anymore (Set flag to empty)
+                    #Also reset dct arrays here
                     flag_array[channel_num] = flag.Empty.value
                     num_blocks_read[channel_num] = 0
                     num_query_read[channel_num] = 0
                     left_over_events[channel_num] = []
+                    dct.initializeBuffers(channel_num-1)
                 # elif read_block.info in identified_reads:
                 #     logger.debug("Skipping because I've seen before.")
                 #     continue
@@ -193,9 +192,9 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
                             elif flag_array[channel_num] == flag.Clearing.value:
                                 logger.info("Clearning Pore: {}".format(channel_num))
                                 continue
-                            dtw_queue.add_task(dtwjob.dtw_job, block_events, warp, channel_num, len(block_events), disc_rate, logger, 
+                            dct_queue.add_task(dctjob.dct_job, block_events, channel_num, len(block_events), disc_rate, logger, 
                             	replay_client, num_blocks_read[channel_num], max_num_blocks, selection_type, channel, read_block, 
-                            	num_query_read[channel_num], max_dev)
+                            	num_query_read[channel_num], max_dev, address_list[channel_num-1])
                             num_query_read[channel_num] = num_query_read[channel_num] + block_size
                         left_over_events[channel_num] = total_events
                     elif len(total_events) == block_size:
@@ -211,9 +210,9 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
                             logger.info("Clearning Pore: {}".format(channel_num))
                             continue
                             
-                        dtw_queue.add_task(dtwjob.dtw_job, total_events, warp, channel_num, len(block_events), disc_rate, logger, 
+                        dct_queue.add_task(dctjob.dct_job, total_events, channel_num, len(block_events), disc_rate, logger, 
                         	replay_client, num_blocks_read[channel_num], max_num_blocks, selection_type, channel, read_block, 
-                        	num_query_read[channel_num], max_dev)
+                        	num_query_read[channel_num], max_dev, address_list[channel_num-1])
                         num_query_read[channel_num] = num_query_read[channel_num] + block_size
                         left_over_events[channel_num] = []
                     elif len(total_events) < block_size:
@@ -253,8 +252,6 @@ translocation). Outputting a bulk .fast5 can be configured when the user
 starts and experiment in MinKnow.
 """)
 
-    #DCT TODO: Add an argument for allowed warp variable
-    parser.add_argument('-w', default=4, type=int, help='Allowed warp')
     #DCT TODO: Add an argument for ref genome location
     parser.add_argument('ref_location', type=str, help='Location of the reference genome')
     #DCT TODO: Add an argument for false discovery rate (needed p value).
@@ -279,7 +276,6 @@ starts and experiment in MinKnow.
 
     # print(args.w)
 
-    # magenta.load_genome(args.ref_location, 1)
     sigs = [signal.SIGHUP, signal.SIGINT, signal.SIGTERM, signal.SIGQUIT, signal.SIGFPE]
     for sig in sigs:
         signal.signal(sig, signalTrap)
@@ -290,16 +286,17 @@ starts and experiment in MinKnow.
         pass
     flag_array = sa.create("shm://pore_flags", 513)
 
-    magenta.allocate_dist_pos(100000, 1)
+    address_list = dct.allocate_matchlocs(1000000)
 
     #DCT TODO: Assign arguments passed in to global variables so they can be used anywhere
     #DCT TODO: load in ref gemone
-    #magenta.load_genome(args.ref_location)
     # read_until_align_filter(args.fast5, args.bwa_index, [str(x) for x in args.channels], args.w, args.ref_location, args.p, args.m, args.selection_type, args.b, args.d)
 
+    deviation = args.d * args.b
+    deviation = int(deviation)
 
-    read_until_align_filter(args.fast5, [str(x) for x in args.channels], args.w, args.ref_location, args.p, args.m, args.selection_type, args.b, args.d)
-    magenta.deallocate_dist_pos()
+    read_until_align_filter(args.fast5, [str(x) for x in args.channels], args.ref_location, args.p, args.m, args.selection_type, args.b, deviation, address_list)
+    dct.deallocate_matchlocs()
     sa.delete("pore_flags")
 
 if __name__ == '__main__':
