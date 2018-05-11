@@ -1,10 +1,10 @@
-def updateMeanStd(events, mean, std, M2, count)
+def updateMeanStd(events, mean, std, M2, count):
     for event in events:
         count, mean, M2 = update(count, mean, M2, event)
-        mean, varience = finalize(count, mean, M2)
-    return mean, varience, M2
+    mean, variance = finalize(count, mean, M2)
+    return mean, variance, M2, count
 
-def znormalizeEvents(events, mean, std)
+def znormalizeEvents(events, mean, std):
     normalized_events = []
     for event in events:
         normalized_event = (event - mean)/ std
@@ -26,10 +26,10 @@ def update(count, mean, M2, newValue):
     return (count, mean, M2)
 
 # retrieve the mean and variance from an aggregate
-def finalize(count, mean, M2):
-    (mean, variance) = (mean, M2/(count - 1)) 
+def finalize(count, mean, M2): 
     if count < 2:
-        return float('nan')
+        return (mean, 0.0)
     else:
+        (mean, variance) = (mean, M2/(count - 1))
         return (mean, variance)
 

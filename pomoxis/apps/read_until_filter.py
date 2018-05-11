@@ -9,6 +9,9 @@ from collections import defaultdict, Counter
 from multiprocessing import freeze_support
 from timeit import default_timer as now
 
+from read_until_utils import updateMeanStd
+from read_until_utils import znormalizeEvents
+
 from aiozmq import rpc
 import numpy as np
 import SharedArray as sa
@@ -35,12 +38,14 @@ num_blocks_read = [0] * 513
 num_query_read = [0] * 513
 # array that holds any left over events greater than the block size
 left_over_events = []
-# array that holds the mean of all events that have been read in so far
+# array that contains the means of each pore
 pore_means = [0] * 513
-# array that holds the standard deviations of all events that have been read in so far
-pore_stds = [0] * 513
-# array that holds the M2 of all events that have been read in so far
-pore_M2 = [0] * 513
+# array that contains the standard deviations of each pore
+pore_std_dev = [0] * 513
+# array that contains the m2 for each pore
+pore_m2 = [0] * 513
+# array that contains the count for each pore
+pore_counts = [0] * 513
 
 # detect when an interrupt occurs so that memory can be properly deallocated
 def signalTrap(signum, frame):
@@ -112,7 +117,7 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
         for i in range(0,513):
             flag_array.append(0)
             left_over_events.append([])
-        #print("Before while loop")
+        print("Before while loop")
         while True:
             time_saved = yield from replay_client.call.time_saved()
             total_pore_time = (now() - start_time) * len(channels)
@@ -140,7 +145,7 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
             logger.info("Unblocks (timely/late): {}/{}.".format(unblocks[True], unblocks[False]))
             logger.info("Total good reads: {}".format(target_count))
 
-            #print("Before channel loop")
+            print("Before channel loop")
 
             for channel in channels:
                 channel_num = int(channel)
@@ -174,7 +179,7 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
                     events = []
                     for element in list_events:
                         events.append(float(element[2]))
-                    print(events)
+                    
                     # store any leftover events
                     left_over_events[channel_num].extend(events)
                     total_events = left_over_events[channel_num]
@@ -212,12 +217,14 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
                             elif flag_array[channel_num] == flag.Clearing.value:
                                 logger.info("Clearning Pore: {}".format(channel_num))
                                 continue
-                            # calculate mean and standard deviation of events that have been read in
-                            
+                            # update the mean and standard deviation for the given events
+                            pore_means[channel_num], pore_std_dev[channel_num], pore_m2[channel_num], pore_counts[channel_num] = updateMeanStd(block_events, pore_means[channel_num], pore_std_dev[channel_num], pore_m2[channel_num], pore_counts[channel_num])
+                            # normalize events
+                            normalized_events = znormalizeEvents(block_events, pore_means[channel_num], pore_std_dev[channel_num])
                             # add a task with the correct block size
-                            dtw_queue.add_task(dtwjob.dtw_job, block_events, warp, channel_num, len(block_events), disc_rate, logger, 
-                            	replay_client, num_blocks_read[channel_num], max_num_blocks, selection_type, channel, read_block, 
-                            	num_query_read[channel_num], max_dev)
+                            dtw_queue.add_task(dtwjob.dtw_job, normalized_events, warp, channel_num, len(block_events), disc_rate, logger, 
+                                replay_client, num_blocks_read[channel_num], max_num_blocks, selection_type, channel, read_block, 
+                                num_query_read[channel_num], max_dev)
                             num_query_read[channel_num] = num_query_read[channel_num] + block_size
                         # put over all the left over events that weren't used in the correct channel number position
                         left_over_events[channel_num] = total_events
@@ -234,10 +241,13 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
                         elif flag_array[channel_num] == flag.Clearing.value:
                             logger.info("Clearning Pore: {}".format(channel_num))
                             continue
-                            
-                        dtw_queue.add_task(dtwjob.dtw_job, total_events, warp, channel_num, len(block_events), disc_rate, logger, 
-                        	replay_client, num_blocks_read[channel_num], max_num_blocks, selection_type, channel, read_block, 
-                        	num_query_read[channel_num], max_dev)
+                        # update the mean and standard deviation for the given events
+                        pore_means[channel_num], pore_std_dev[channel_num], pore_m2[channel_num], pore_counts[channel_num] = updateMeanStd(total_events, pore_means[channel_num], pore_std_dev[channel_num], pore_m2[channel_num], pore_counts[channel_num])
+                        # normalize events
+                        normalized_events = znormalizeEvents(total_events, pore_means[channel_num], pore_std_dev[channel_num])
+                        dtw_queue.add_task(dtwjob.dtw_job, normalized_events, warp, channel_num, len(block_events), disc_rate, logger, 
+                            replay_client, num_blocks_read[channel_num], max_num_blocks, selection_type, channel, read_block, 
+                            num_query_read[channel_num], max_dev)
                         num_query_read[channel_num] = num_query_read[channel_num] + block_size
                         left_over_events[channel_num] = []
                     # if there are less events than the block size should be
@@ -285,11 +295,11 @@ starts and experiment in MinKnow.
     # False discovery rate (needed p value).
     parser.add_argument('-p', default=0.01, type=float, help='False discovery rate')
     # Max num of blocks to read before rejecting (positive/ negative selection)
-    parser.add_argument('-m', default=64, type=int, help='The number of bases to read in before rejecting')
+    parser.add_argument('-m', default=10000, type=int, help='The number of bases to read in before rejecting')
     # Flag that will let the user specify positive or negative selection
     parser.add_argument('selection_type', type=str, choices=['positive', 'negative'], help='Specify positive or negative selction')
     # Block size of events
-    parser.add_argument('-b', default=24, type=int, help='The block size of events')
+    parser.add_argument('-b', default=17, type=int, help='The block size of events')
     # Maximum colinear deviation
     parser.add_argument('-d', default=0.25, type=float, help='Max colinear deviation needed')
 
