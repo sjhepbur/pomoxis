@@ -33,7 +33,7 @@ class TaskQueue(collections.deque):
     def worker(self, worker_num, genome_location, block_size, online_normalize, verbose):
         initialize_result = magenta.initialize_device(worker_num)
         if initialize_result != 0:
-            raise Exception('Initialization of CUDA device ' + worker_num + 'returned error code: ' + initialize_result)
+            raise Exception('Initialization of CUDA device ', worker_num, 'returned error code: ', initialize_result)
         print("Initialization worked!")
         magenta.load_genome(genome_location, block_size, online_normalize, verbose)
         print("Genome loaded!")

@@ -16,9 +16,6 @@ from aiozmq import rpc
 import numpy as np
 import SharedArray as sa
 
-
-from nanonet.eventdetection.filters import minknow_event_detect
-
 from pomoxis import set_wakeup
 from pomoxis.provider import replayfast5
 from pomoxis.align import bwa
@@ -55,7 +52,7 @@ def signalTrap(signum, frame):
     print('\nInterrupted with signal: ' + str(signum))
     sys.exit()
 
-def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, max_num_blocks, selection_type, block_size, max_dev, start_port=5555, targets=['Ecoli', 'yeast'], whitelist=False):
+def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, max_num_blocks, selection_type, block_size, max_dev, event_split_criterion, start_port=5555, targets=['Ecoli', 'yeast'], whitelist=False):
     """Demonstration read until application using scrappie and bwa to filter
     reads by identity.
 
@@ -166,12 +163,23 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
                     sample_rate = read_block.sample_rate
 
                     #pico amperage data
-                    events = minknow_event_detect(
-                        read_block, read_block.sample_rate, **{
-                            'window_lengths':[3, 6], 'thresholds':[1.4, 1.1],
-                            'peak_height':0.2
-                        }
-                    )
+                    #4000/sample_rate = avg # samples per event
+                    #min samples = 2
+                    #event split = 3 (3 is default but make this a user defined value as well)
+
+                    sample_length = read_block.length
+                    avg_samples_per_event = 4000 / read_block.sample_rate
+                    min_samples_per_event = 2;
+
+                    events = segment_nanopore(read_block, sample_length, avg_samples_per_event, min_samples_per_event, event_split_criterion)
+
+                    print(events)
+                    # events = minknow_event_detect(
+                    #     read_block, read_block.sample_rate, **{
+                    #         'window_lengths':[3, 6], 'thresholds':[1.4, 1.1],
+                    #         'peak_height':0.2
+                    #     }
+                    # )
 
 
                     # get events from what has been read in by the MinION
@@ -302,6 +310,8 @@ starts and experiment in MinKnow.
     parser.add_argument('-b', default=17, type=int, help='The block size of events')
     # Maximum colinear deviation
     parser.add_argument('-d', default=0.25, type=float, help='Max colinear deviation needed')
+    # Criterion for when to determine when an event should split
+    parser.add_argument('-s', default=3, type=float, help='Max colinear deviation needed')
 
 
 
@@ -333,7 +343,7 @@ starts and experiment in MinKnow.
     # read_until_align_filter(args.fast5, args.bwa_index, [str(x) for x in args.channels], args.w, args.ref_location, args.p, args.m, args.selection_type, args.b, args.d)
 
 
-    read_until_align_filter(args.fast5, [str(x) for x in args.channels], args.w, args.ref_location, args.p, args.m, args.selection_type, args.b, args.d)
+    read_until_align_filter(args.fast5, [str(x) for x in args.channels], args.w, args.ref_location, args.p, args.m, args.selection_type, args.b, args.d, args.s)
     magenta.deallocate_dist_pos()
     sa.delete("pore_flags")
 

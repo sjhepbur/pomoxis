@@ -14,3 +14,6 @@ tmp/
 *.gz
 *__pycache__*
 *.fna
+bincache
+submodules
+get-pip.py*
