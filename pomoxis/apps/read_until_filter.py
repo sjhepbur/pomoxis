@@ -2,6 +2,7 @@
 import magenta
 import signal
 import sys
+from znormalize import znormalize
 
 import argparse
 import asyncio
@@ -29,20 +30,28 @@ logger = logging.getLogger(__name__)
 
 import dtwjob
 
+num_pores = 513
+
 # array that contains the number of blocks read in each pore
-num_blocks_read = [0] * 513
+num_blocks_read = [0] * num_pores
 # array that contains the number of events that have been read in each pore
-num_query_read = [0] * 513
+num_query_read = [0] * num_pores
 # array that holds any left over events greater than the block size
 left_over_events = []
 # array that contains the means of each pore
-pore_means = [0] * 513
+pore_means = [0] * num_pores
 # array that contains the standard deviations of each pore
-pore_std_dev = [0] * 513
+pore_std_dev = [0] * num_pores
 # array that contains the m2 for each pore
-pore_m2 = [0] * 513
+pore_m2 = [0] * num_pores
 # array that contains the count for each pore
-pore_counts = [0] * 513
+pore_counts = [0] * num_pores
+# array that contains the znormalize objects for each pore. these objects will keep track of the means and standard deviations of 
+# all events being read into the MinION
+pore_znormalized = []
+for count in range(num_pores):
+    znorm_ob = znormalize()
+    pore_znormalized.append(znorm_ob)
 
 # detect when an interrupt occurs so that memory can be properly deallocated
 def signalTrap(signum, frame):
@@ -228,7 +237,7 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
                             # update the mean and standard deviation for the given events
                             pore_means[channel_num], pore_std_dev[channel_num], pore_m2[channel_num], pore_counts[channel_num] = updateMeanStd(block_events, pore_means[channel_num], pore_std_dev[channel_num], pore_m2[channel_num], pore_counts[channel_num])
                             # normalize events
-                            normalized_events = znormalizeEvents(block_events, pore_means[channel_num], pore_std_dev[channel_num])
+                            flag, normalized_events = pore_znormalized[channel_num].znormalizeEvents(block_events)
                             # add a task with the correct block size
                             dtw_queue.add_task(dtwjob.dtw_job, normalized_events, warp, channel_num, len(block_events), disc_rate, logger, 
                                 replay_client, num_blocks_read[channel_num], max_num_blocks, selection_type, channel, read_block, 
