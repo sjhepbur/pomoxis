@@ -184,35 +184,36 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
                     # check if the total events read in are greater than the block size
                     if len(total_events) > block_size:
 
-                        # run while the length of the events is greater than the block_size
-                        while len(total_events) > block_size:
-                            # get the correct number of events from the total events
-                            block_events = total_events[0:block_size]
-                            # print(block_events)
-                            # put the remainder of the events back in total events
-                            total_events = total_events[block_size+1:len(total_events)]
-                            # if the channel was empty before
-                            if flag_array[channel_num] == flag.Empty.value:
-                                flag_array[channel_num] = flag.Instrand_check.value
-                                num_blocks_read[channel_num] = 1
-                            # if the channel is supposed to be checked
-                            elif flag_array[channel_num] == flag.Instrand_check.value:
-                                num_blocks_read[channel_num] = num_blocks_read[channel_num] + 1
-                            # if the channel is supposed to be ignored
-                            elif flag_array[channel_num] == flag.Instrand_ignore.value:
-                                logger.info("Reading data but ignoring pore: {}".format(channel_num))
-                                continue
-                            # if the channel is supposed to be cleared
-                            elif flag_array[channel_num] == flag.Clearing.value:
-                                logger.info("Clearning Pore: {}".format(channel_num))
-                                continue
-                            # add a task with the correct block size
-                            dtw_queue.add_task(dtwjob.dtw_job, block_events, warp, channel_num, len(block_events), disc_rate, logger, 
-                            	replay_client, num_blocks_read[channel_num], max_num_blocks, selection_type, channel, read_block, 
-                            	num_query_read[channel_num], max_dev)
-                            num_query_read[channel_num] = num_query_read[channel_num] + block_size
-                        # put over all the left over events that weren't used in the correct channel number position
-                        left_over_events[channel_num] = total_events
+                        # get the largest multiple of block_size that can be taken from total_events
+                        max_block_size = int(math.floor(len(total_events) / block_size)) * block_size
+
+                        # store the largest multiple of block_size in block_events
+                        block_events = total_events[0:max_block_size]
+
+                        # store remaining events in left_over_events
+                        left_over_events[channel_num] = total_events[max_block_size:len(total_events)]
+
+                        # if the channel was empty before
+                        if flag_array[channel_num] == flag.Empty.value:
+                            flag_array[channel_num] = flag.Instrand_check.value
+                            num_blocks_read[channel_num] = 1
+                        # if the channel is supposed to be checked
+                        elif flag_array[channel_num] == flag.Instrand_check.value:
+                            num_blocks_read[channel_num] = num_blocks_read[channel_num] + 1
+                        # if the channel is supposed to be ignored
+                        elif flag_array[channel_num] == flag.Instrand_ignore.value:
+                            logger.info("Reading data but ignoring pore: {}".format(channel_num))
+                            continue
+                        # if the channel is supposed to be cleared
+                        elif flag_array[channel_num] == flag.Clearing.value:
+                            logger.info("Clearning Pore: {}".format(channel_num))
+                            continue
+
+                        # add nex job
+                        dtw_queue.add_task(dtwjob.dtw_job, block_events, warp, channel_num, len(block_events), disc_rate, logger, 
+                                replay_client, num_blocks_read[channel_num], max_num_blocks, selection_type, channel, read_block, 
+                                num_query_read[channel_num], max_dev)
+
                     # if there is the correct number of events in the block 
                     elif len(total_events) == block_size:
                         if flag_array[channel_num] == flag.Empty.value:
@@ -232,6 +233,7 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
                         	num_query_read[channel_num], max_dev)
                         num_query_read[channel_num] = num_query_read[channel_num] + block_size
                         left_over_events[channel_num] = []
+                        
                     # if there are less events than the block size should be
                     elif len(total_events) < block_size:
                         left_over_events[channel_num] = total_events
