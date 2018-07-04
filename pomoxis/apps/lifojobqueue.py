@@ -35,7 +35,8 @@ class TaskQueue(collections.deque):
         if initialize_result != 0:
             raise Exception('Initialization of CUDA device ', worker_num, 'returned error code: ', initialize_result)
         print("Initialization worked!")
-        magenta.load_genome(genome_location, block_size, online_normalize, verbose)
+        genome_length = magenta.load_genome(genome_location, block_size, online_normalize, verbose)
+        print(genome_length)
         print("Genome loaded!")
 
         flag_array = sa.attach("shm://pore_flags")

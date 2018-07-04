@@ -22,7 +22,7 @@ from pomoxis.provider import replayfast5
 from pomoxis.align import bwa
 # from pomoxis.pyscrap import pyscrap
 
-from flag_enum import flag
+from pore_enum import pore
 from lifojobqueue import TaskQueue
 
 import logging
@@ -61,7 +61,7 @@ def signalTrap(signum, frame):
     print('\nInterrupted with signal: ' + str(signum))
     sys.exit()
 
-def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, max_num_blocks, selection_type, block_size, max_dev, event_split_criterion, start_port=5555, targets=['Ecoli', 'yeast'], whitelist=False):
+def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, max_num_blocks, selection_type, block_size, max_dev, event_split_criterion, sequence_rate, start_port=5555, targets=['Ecoli', 'yeast'], whitelist=False):
     """Demonstration read until application using scrappie and bwa to filter
     reads by identity.
 
@@ -118,10 +118,10 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
         yield from asyncio.sleep(5)
         start_time = now()
         target_count = 0
-        flag_array = []
+        pore_array = []
         # initiallize the flag and left over events arrays
         for i in range(0,513):
-            flag_array.append(0)
+            pore_array.append(0)
             left_over_events.append([])
         print("Before while loop")
         while True:
@@ -159,8 +159,8 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
                 read_block = yield from replay_client.call.get_raw(channel)
                 if read_block is None:
                     logger.debug("Channel not in '{}' classification".format(good_class))
-                    #Reset boolean array here since we're not reading in any data from this pore anymore (Set flag to empty)
-                    flag_array[channel_num] = flag.Empty.value
+                    #Reset boolean array here since we're not reading in any data from this pore anymore (Set pore flag to empty)
+                    pore_array[channel_num] = pore.Empty.value
                     num_blocks_read[channel_num] = 0
                     num_query_read[channel_num] = 0
                     left_over_events[channel_num] = []
@@ -170,19 +170,26 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
                 else:
                     logger.debug("Analysing {} samples".format(len(read_block)))
                     sample_rate = read_block.sample_rate
+                    # sequence_rate = 70
 
                     #pico amperage data
                     #4000/sample_rate = avg # samples per event
                     #min samples = 2
                     #event split = 3 (3 is default but make this a user defined value as well)
 
-                    sample_length = read_block.length
-                    avg_samples_per_event = 4000 / read_block.sample_rate
+                    raw_events = read_block.tolist()
+                    raw_events_length = len(raw_events)
+
+                    # sample_length = read_block.length
+                    # avg_samples_per_event = int(4000 / sample_rate)
+                    avg_samples_per_event = int(sample_rate / sequence_rate)
                     min_samples_per_event = 2;
 
-                    events = segment_nanopore(read_block, sample_length, avg_samples_per_event, min_samples_per_event, event_split_criterion)
+                    print("The sample rate is: " + str(sample_rate))
 
-                    print(events)
+                    # events = segment_nanopore(read_block, sample_length, avg_samples_per_event, min_samples_per_event, event_split_criterion)
+                    events = magenta.segment_nanopore(raw_events, raw_events_length, avg_samples_per_event, min_samples_per_event, event_split_criterion)
+
                     # events = minknow_event_detect(
                     #     read_block, read_block.sample_rate, **{
                     #         'window_lengths':[3, 6], 'thresholds':[1.4, 1.1],
@@ -220,24 +227,24 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
                             # put the remainder of the events back in total events
                             total_events = total_events[block_size+1:len(total_events)]
                             # if the channel was empty before
-                            if flag_array[channel_num] == flag.Empty.value:
-                                flag_array[channel_num] = flag.Instrand_check.value
+                            if pore_array[channel_num] == pore.Empty.value:
+                                pore_array[channel_num] = pore.Instrand_check.value
                                 num_blocks_read[channel_num] = 1
                             # if the channel is supposed to be checked
-                            elif flag_array[channel_num] == flag.Instrand_check.value:
+                            elif pore_array[channel_num] == pore.Instrand_check.value:
                                 num_blocks_read[channel_num] = num_blocks_read[channel_num] + 1
                             # if the channel is supposed to be ignored
-                            elif flag_array[channel_num] == flag.Instrand_ignore.value:
+                            elif pore_array[channel_num] == pore.Instrand_ignore.value:
                                 logger.info("Reading data but ignoring pore: {}".format(channel_num))
                                 continue
                             # if the channel is supposed to be cleared
-                            elif flag_array[channel_num] == flag.Clearing.value:
+                            elif pore_array[channel_num] == pore.Clearing.value:
                                 logger.info("Clearning Pore: {}".format(channel_num))
                                 continue
                             # update the mean and standard deviation for the given events
                             pore_means[channel_num], pore_std_dev[channel_num], pore_m2[channel_num], pore_counts[channel_num] = updateMeanStd(block_events, pore_means[channel_num], pore_std_dev[channel_num], pore_m2[channel_num], pore_counts[channel_num])
                             # normalize events
-                            flag, normalized_events = pore_znormalized[channel_num].znormalizeEvents(block_events)
+                            threshold_flag, normalized_events = pore_znormalized[channel_num].znormalizeEvents(block_events)
                             # add a task with the correct block size
                             dtw_queue.add_task(dtwjob.dtw_job, normalized_events, warp, channel_num, len(block_events), disc_rate, logger, 
                                 replay_client, num_blocks_read[channel_num], max_num_blocks, selection_type, channel, read_block, 
@@ -247,15 +254,15 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
                         left_over_events[channel_num] = total_events
                     # if there is the correct number of events in the block 
                     elif len(total_events) == block_size:
-                        if flag_array[channel_num] == flag.Empty.value:
-                            flag_array[channel_num] = flag.Instrand_check.value
+                        if pore_array[channel_num] == pore.Empty.value:
+                            pore_array[channel_num] = pore.Instrand_check.value
                             num_blocks_read[channel_num] = 1
-                        elif flag_array[channel_num] == flag.Instrand_check.value:
+                        elif pore_array[channel_num] == pore.Instrand_check.value:
                             num_blocks_read[channel_num] = num_blocks_read[channel_num] + 1
-                        elif flag_array[channel_num] == flag.Instrand_ignore.value:
+                        elif pore_array[channel_num] == pore.Instrand_ignore.value:
                             logger.info("Reading data but ignoring pore: {}".format(channel_num))
                             continue
-                        elif flag_array[channel_num] == flag.Clearing.value:
+                        elif pore_array[channel_num] == pore.Clearing.value:
                             logger.info("Clearning Pore: {}".format(channel_num))
                             continue
                         # update the mean and standard deviation for the given events
@@ -320,13 +327,15 @@ starts and experiment in MinKnow.
     # Maximum colinear deviation
     parser.add_argument('-d', default=0.25, type=float, help='Max colinear deviation needed')
     # Criterion for when to determine when an event should split
-    parser.add_argument('-s', default=3, type=float, help='Max colinear deviation needed')
+    parser.add_argument('-s', default=3, type=int, help='Event split criterion')
+    # Sequencing rate needed for getting the average number of samples per events
+    parser.add_argument('sequence_rate', default=70, type=int, help='Sequencing rate of the sample')
 
 
 
     parser.add_argument('fast5', type=str, help='Input fast5.')
     parser.add_argument('channels', action=ExpandRanges, help='Fast5 channel for source data.')
-    #DCT TODO: Need to get the length of channels to calculate the maxlength of the queue
+    # DCT TODO: Need to get the length of channels to calculate the maxlength of the queue
     # parser.add_argument('bwa_index', nargs='+', help='Filename path prefix for BWA index files.')
     args = parser.parse_args()
 
@@ -334,7 +343,7 @@ starts and experiment in MinKnow.
     # print(args.w)
 
     # magenta.load_genome(args.ref_location, 1)
-    sigs = [signal.SIGHUP, signal.SIGINT, signal.SIGTERM, signal.SIGQUIT, signal.SIGFPE]
+    sigs = [signal.SIGHUP, signal.SIGINT, signal.SIGTERM, signal.SIGQUIT, signal.SIGFPE, signal.SIGSEGV]
     for sig in sigs:
         signal.signal(sig, signalTrap)
     try:    
@@ -342,9 +351,12 @@ starts and experiment in MinKnow.
         sa.delete("pore_flags")
     except:
         pass
-    flag_array = sa.create("shm://pore_flags", 513)
+    pore_array = sa.create("shm://pore_flags", 513)
 
     magenta.allocate_dist_pos(100000, 1)
+
+    # Increase sequence rate by 11% to extend range of events read in
+    sequence_rate = args.sequence_rate * 1.11
 
     #DCT TODO: Assign arguments passed in to global variables so they can be used anywhere
     #DCT TODO: load in ref gemone
@@ -352,7 +364,7 @@ starts and experiment in MinKnow.
     # read_until_align_filter(args.fast5, args.bwa_index, [str(x) for x in args.channels], args.w, args.ref_location, args.p, args.m, args.selection_type, args.b, args.d)
 
 
-    read_until_align_filter(args.fast5, [str(x) for x in args.channels], args.w, args.ref_location, args.p, args.m, args.selection_type, args.b, args.d, args.s)
+    read_until_align_filter(args.fast5, [str(x) for x in args.channels], args.w, args.ref_location, args.p, args.m, args.selection_type, args.b, args.d, sequence_rate, args.r)
     magenta.deallocate_dist_pos()
     sa.delete("pore_flags")
 

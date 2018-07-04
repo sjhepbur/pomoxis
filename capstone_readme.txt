@@ -12,3 +12,6 @@ Basic command to run pomoxis in the virtual environment:
 	python read_until_filter.py /home/sjhepbur/minioncapstone/sample_data/E_coli/ecoli_genome.fna positive /home/gordonp/bulk_fast5/MSI_20180314_FAH40082_MN24809_sequencing_run_mt237_3_brdu_mcginty_54076.fast5 1-512
 
 Run . ./venv/bin/deactivate to exit the virtual environment when done
+
+
+python read_until_filter.py /home/sjhepbur/sample_data/spike-ins_small_file/spike-ins.fa positive /media/paul/MSI_20180425_FAH53124_MN16917_sequencing_run_ProvLab_CSF_polyA_virus_run1_60268.fast5 302
