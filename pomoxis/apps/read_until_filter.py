@@ -364,7 +364,7 @@ starts and experiment in MinKnow.
     # read_until_align_filter(args.fast5, args.bwa_index, [str(x) for x in args.channels], args.w, args.ref_location, args.p, args.m, args.selection_type, args.b, args.d)
 
 
-    read_until_align_filter(args.fast5, [str(x) for x in args.channels], args.w, args.ref_location, args.p, args.m, args.selection_type, args.b, args.d, sequence_rate, args.r)
+    read_until_align_filter(args.fast5, [str(x) for x in args.channels], args.w, args.ref_location, args.p, args.m, args.selection_type, args.b, args.d, args.s, sequence_rate)
     magenta.deallocate_dist_pos()
     sa.delete("pore_flags")
 
