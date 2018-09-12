@@ -9,8 +9,8 @@ from collections import defaultdict, Counter
 from multiprocessing import freeze_support
 from timeit import default_timer as now
 
-from read_until_utils import updateMeanStd
-from read_until_utils import znormalizeEvents
+# from read_until_utils import updateMeanStd
+# from read_until_utils import znormalizeEvents
 
 from aiozmq import rpc
 import numpy as np
@@ -52,7 +52,7 @@ def signalTrap(signum, frame):
     print('\nInterrupted with signal: ' + str(signum))
     sys.exit()
 
-def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, max_num_blocks, selection_type, block_size, max_dev, event_split_criterion, start_port=5555, targets=['Ecoli', 'yeast'], whitelist=False):
+def read_until_align_filter(fast5, channels, max_collinearity_dev, genome_location, match_max_pvalue, min_samples_per_event, max_num_blocks, selection_type, M, event_split_criterion, znormalize_multiple, verbose, start_port=5555, targets=['Ecoli', 'yeast'], whitelist=False):
     """Demonstration read until application using scrappie and bwa to filter
     reads by identity.
 
@@ -161,17 +161,24 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
                 else:
                     logger.debug("Analysing {} samples".format(len(read_block)))
                     sample_rate = read_block.sample_rate
+                    translocation_rate = 50 *1.1    # Ask about this
 
                     #pico amperage data
                     #4000/sample_rate = avg # samples per event
                     #min samples = 2
                     #event split = 3 (3 is default but make this a user defined value as well)
 
-                    sample_length = read_block.length
-                    avg_samples_per_event = 4000 / read_block.sample_rate
-                    min_samples_per_event = 2;
+                    print("sample rate from pomoxis is: {}".format(sample_rate))
+                    print("sample rate from magenta is: {}".format(magenta.getSampleRateforBulk(fast5)))
 
-                    events = segment_nanopore(read_block, sample_length, avg_samples_per_event, min_samples_per_event, event_split_criterion)
+                    sample_length = read_block.length
+                    # avg_samples_per_event = int(sample_rate/translocation_rate)
+                    avg_samples_per_event = int(4000 / read_block.sample_rate)
+                    estimated_num_events = int(((float(raw_events_length)/sample_rate*translocation_rate))*1.4+1)
+                    # estimated_num_events = int(((float(sample_length)/4000*sample_rate))*1.4+1)
+                    #min_samples_per_event = 2;
+
+                    size_of_events, events = segment_nanopore(read_block, sample_length, avg_samples_per_event, min_samples_per_event, event_split_criterion, estimated_num_events, verbose)
 
                     print(events)
                     # events = minknow_event_detect(
@@ -183,10 +190,10 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
 
 
                     # get events from what has been read in by the MinION
-                    list_events = events.tolist()
-                    events = []
-                    for element in list_events:
-                        events.append(float(element[2]))
+                    # list_events = events.tolist()
+                    # events = []
+                    # for element in list_events:
+                    #     events.append(float(element[2]))
                     
                     # store any leftover events
                     left_over_events[channel_num].extend(events)
@@ -194,22 +201,22 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
                     # print("Type of total events")
                     # print(type(total_events))
                     try:
-                        len(total_events) > block_size
+                        len(total_events) > M
                     except Exception as e:
                         print("Exception!")
                         print(e)
                         total_events = []
 
                     # check if the total events read in are greater than the block size
-                    if len(total_events) > block_size:
+                    if len(total_events) > M:
 
                         # run while the length of the events is greater than the block_size
-                        while len(total_events) > block_size:
+                        while len(total_events) > M:
                             # get the correct number of events from the total events
-                            block_events = total_events[0:block_size]
+                            block_events = total_events[0:M]
                             # print(block_events)
                             # put the remainder of the events back in total events
-                            total_events = total_events[block_size+1:len(total_events)]
+                            total_events = total_events[M+1:len(total_events)]
                             # if the channel was empty before
                             if flag_array[channel_num] == flag.Empty.value:
                                 flag_array[channel_num] = flag.Instrand_check.value
@@ -226,18 +233,26 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
                                 logger.info("Clearning Pore: {}".format(channel_num))
                                 continue
                             # update the mean and standard deviation for the given events
-                            pore_means[channel_num], pore_std_dev[channel_num], pore_m2[channel_num], pore_counts[channel_num] = updateMeanStd(block_events, pore_means[channel_num], pore_std_dev[channel_num], pore_m2[channel_num], pore_counts[channel_num])
+                            # pore_means[channel_num], pore_std_dev[channel_num], pore_m2[channel_num], pore_counts[channel_num] = updateMeanStd(block_events, pore_means[channel_num], pore_std_dev[channel_num], pore_m2[channel_num], pore_counts[channel_num])
+                            # pore_means[channel_num], pore_std_dev[channel_num], pore_m2[channel_num], pore_counts[channel_num] = magenta.updatePythonMeanStd(block_events, len(block_events), pore_means[channel_num], pore_std_dev[channel_num], pore_m2[channel_num], pore_counts[channel_num], znormalize_multiple)
+                            
                             # normalize events
-                            normalized_events = znormalizeEvents(block_events, pore_means[channel_num], pore_std_dev[channel_num])
+                            # normalized_events = znormalizeEvents(block_events, pore_means[channel_num], pore_std_dev[channel_num])
+                            # normalized_events = magenta.znormalizePythonEvents(block_events, len(block_events), pore_means[channel_num], pore_std_dev[channel_num])
+
+                            normalized_events, pore_means[channel_num], pore_std_dev[channel_num], pore_m2[channel_num], pore_counts[channel_num] = \
+                            magenta.znormalizePythonEvents(tmp_events, len(tmp_events), pore_means[channel_num], pore_std_dev[channel_num], pore_m2[channel_num],
+                                pore_counts[channel_num], znormalize_multiple)
+
                             # add a task with the correct block size
-                            dtw_queue.add_task(dtwjob.dtw_job, normalized_events, warp, channel_num, len(block_events), disc_rate, logger, 
+                            dtw_queue.add_task(dtwjob.dtw_job, normalized_events, max_collinearity_dev, channel_num, len(block_events), match_max_pvalue, logger, 
                                 replay_client, num_blocks_read[channel_num], max_num_blocks, selection_type, channel, read_block, 
-                                num_query_read[channel_num], max_dev)
-                            num_query_read[channel_num] = num_query_read[channel_num] + block_size
+                                num_query_read[channel_num])
+                            num_query_read[channel_num] = num_query_read[channel_num] + M
                         # put over all the left over events that weren't used in the correct channel number position
                         left_over_events[channel_num] = total_events
                     # if there is the correct number of events in the block 
-                    elif len(total_events) == block_size:
+                    elif len(total_events) == M:
                         if flag_array[channel_num] == flag.Empty.value:
                             flag_array[channel_num] = flag.Instrand_check.value
                             num_blocks_read[channel_num] = 1
@@ -250,16 +265,23 @@ def read_until_align_filter(fast5, channels, warp, genome_location, disc_rate, m
                             logger.info("Clearning Pore: {}".format(channel_num))
                             continue
                         # update the mean and standard deviation for the given events
-                        pore_means[channel_num], pore_std_dev[channel_num], pore_m2[channel_num], pore_counts[channel_num] = updateMeanStd(total_events, pore_means[channel_num], pore_std_dev[channel_num], pore_m2[channel_num], pore_counts[channel_num])
+                        # pore_means[channel_num], pore_std_dev[channel_num], pore_m2[channel_num], pore_counts[channel_num] = updateMeanStd(total_events, pore_means[channel_num], pore_std_dev[channel_num], pore_m2[channel_num], pore_counts[channel_num])
+                        # pore_means[channel_num], pore_std_dev[channel_num], pore_m2[channel_num], pore_counts[channel_num] = magenta.updatePythonMeanStd(block_events, len(block_events), pore_means[channel_num], pore_std_dev[channel_num], pore_m2[channel_num], pore_counts[channel_num], znormalize_multiple)
+
                         # normalize events
-                        normalized_events = znormalizeEvents(total_events, pore_means[channel_num], pore_std_dev[channel_num])
-                        dtw_queue.add_task(dtwjob.dtw_job, normalized_events, warp, channel_num, len(block_events), disc_rate, logger, 
+                        # normalized_events = znormalizeEvents(total_events, pore_means[channel_num], pore_std_dev[channel_num])
+                        # normalized_events = magenta.znormalizePythonEvents(block_events, len(block_events), pore_means[channel_num], pore_std_dev[channel_num])
+                        normalized_events, pore_means[channel_num], pore_std_dev[channel_num], pore_m2[channel_num], pore_counts[channel_num] = \
+                        magenta.znormalizePythonEvents(tmp_events, len(tmp_events), pore_means[channel_num], pore_std_dev[channel_num], pore_m2[channel_num],
+                            pore_counts[channel_num], znormalize_multiple)
+
+                        dtw_queue.add_task(dtwjob.dtw_job, normalized_events, max_collinearity_dev, channel_num, len(block_events), match_max_pvalue, logger, 
                             replay_client, num_blocks_read[channel_num], max_num_blocks, selection_type, channel, read_block, 
-                            num_query_read[channel_num], max_dev)
-                        num_query_read[channel_num] = num_query_read[channel_num] + block_size
+                            num_query_read[channel_num])
+                        num_query_read[channel_num] = num_query_read[channel_num] + M
                         left_over_events[channel_num] = []
                     # if there are less events than the block size should be
-                    elif len(total_events) < block_size:
+                    elif len(total_events) < M:
                         left_over_events[channel_num] = total_events
 
     event_loop.create_task(poll_data(port))
@@ -297,21 +319,31 @@ starts and experiment in MinKnow.
 """)
 
     # Aallowed warp variable
-    parser.add_argument('-w', default=4, type=int, help='Allowed warp')
+    # parser.add_argument('-w', default=4, type=int, help='Allowed warp')
+
+    # Maximum colinear deviation
+    parser.add_argument('-w', default=0.25, type=float, help='Warp max (proportion of length deviation allowed between query and subject in alignment, larger=more sensitive & longer runtime, floating point)>')
     #Ref genome location
     parser.add_argument('ref_location', type=str, help='Location of the reference genome')
     # False discovery rate (needed p value).
-    parser.add_argument('-p', default=0.01, type=float, help='False discovery rate')
+    parser.add_argument('-p', default=0.0001, type=float, help='P-value limit for reporting matches (i.e. False Discovery Rate, floating point)]')
+
+    # Minimum samples per event
+    parser.add_argument('-m', default=2, type=int, help='Min num samples per event (integer)]')
+
     # Max num of blocks to read before rejecting (positive/ negative selection)
-    parser.add_argument('-m', default=10000, type=int, help='The number of bases to read in before rejecting')
+    parser.add_argument('-b', default=10000, type=int, help='The number of bases to read in before rejecting')
+
     # Flag that will let the user specify positive or negative selection
     parser.add_argument('selection_type', type=str, choices=['positive', 'negative'], help='Specify positive or negative selction')
     # Block size of events
-    parser.add_argument('-b', default=17, type=int, help='The block size of events')
-    # Maximum colinear deviation
-    parser.add_argument('-d', default=0.25, type=float, help='Max colinear deviation needed')
+    parser.add_argument('-s', default=17, type=int, help='seed match size (larger=more sensitive & longer runtime, integer)]')
     # Criterion for when to determine when an event should split
-    parser.add_argument('-s', default=3, type=float, help='Max colinear deviation needed')
+    parser.add_argument('-a', default=3, type=int, help='Attentuation limit for a translocation event (i.e. events longer than this multiple of the avg event size get split, floating point)]')
+    # Multiple that will determine when znormalization needs to be reset
+    parser.add_argument('-z', default=2, type=int, help='zNormalization that determines a mean and standard deviation reset (Getting past polyA tail)')
+    # verbose
+    parser.add_argument('-v', action='store_true', help='Verbose mode')
 
 
 
@@ -343,7 +375,7 @@ starts and experiment in MinKnow.
     # read_until_align_filter(args.fast5, args.bwa_index, [str(x) for x in args.channels], args.w, args.ref_location, args.p, args.m, args.selection_type, args.b, args.d)
 
 
-    read_until_align_filter(args.fast5, [str(x) for x in args.channels], args.w, args.ref_location, args.p, args.m, args.selection_type, args.b, args.d, args.s)
+    read_until_align_filter(args.fast5, [str(x) for x in args.channels], args.w, args.ref_location, args.p, args.m, args.b, args.selection_type, args.s, args.a, args.z, args.v)
     magenta.deallocate_dist_pos()
     sa.delete("pore_flags")
 

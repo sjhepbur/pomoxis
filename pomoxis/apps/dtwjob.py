@@ -20,13 +20,13 @@ import logging
 #DCT TODO: Add in an argument for the shared memory location to be passed into align when called
 #DCT TODO: We wont be needing the channel_num since the shared memory location will relate to the channel being used
 #@timeout(5, use_signals=False)
-def dtw_job(events, warp, channel_num, len_of_events, disc_rate, logger, replay_client, num_blocks_read, max_num_blocks, selection_type, channel, read_block, query_location, max_dev, flag_list):
+def dtw_job(events, max_collinearity_dev, channel_num, len_of_events, match_max_pvalue, logger, replay_client, num_blocks_read, max_num_blocks, selection_type, channel, read_block, query_location, flag_list):
     # print("Test")
     #sys.stdout.flush()
     print("Pore: {}".format(channel))
     sys.stdout.flush()
     if flag_list[channel_num] != flag.Clearing.value and flag_list[channel_num] != flag.Instrand_ignore.value:
-        p, query_match_locs, sub_match_locs = magenta.align(events, warp, channel_num, len_of_events, query_location, max_dev)
+        p, query_match_locs, sub_match_locs = magenta.align(events, max_collinearity_dev, channel_num, len_of_events, query_location)
         print("p value: {}".format(p))
         print("query_location: {}".format(query_location))
         sys.stdout.flush()
@@ -37,11 +37,11 @@ def dtw_job(events, warp, channel_num, len_of_events, disc_rate, logger, replay_
     #DCT TODO: Check the returned p value here (is it less than or equal to discovery rate?)
     #
 
-        if (p <= disc_rate and selection_type == "positive") or (p > disc_rate and num_blocks_read >= max_num_blocks and selection_type == "negative"):
+        if (p <= match_max_pvalue and selection_type == "positive") or (p > match_max_pvalue and num_blocks_read >= max_num_blocks and selection_type == "negative"):
             flag_list[channel_num] = flag.Instrand_ignore.value
-        elif p > disc_rate and num_blocks_read < max_num_blocks:
+        elif p > match_max_pvalue and num_blocks_read < max_num_blocks:
             flag_list[channel_num] = flag.Instrand_check.value
-        elif (p > disc_rate and num_blocks_read >= max_num_blocks and selection_type == "positive") or (p <= disc_rate and selection_type == "negative"):
+        elif (p > match_max_pvalue and num_blocks_read >= max_num_blocks and selection_type == "positive") or (p <= match_max_pvalue and selection_type == "negative"):
             # _, good_unblock = yield from replay_client.call.unblock(channel, read_block.info, read_block.end)
             print("Clearing Pore")
             flag_list[channel_num] = flag.Clearing.value
